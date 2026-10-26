@@ -27,7 +27,7 @@ from xodus.ingestion.text import Block
 from xodus.providers.base import ModelNotAvailable, ProviderError, ProviderTimeout, ProviderUnavailable
 from xodus.providers.ollama import EmbeddingDimensionError
 from xodus.security.paths import PathViolation, resolve_existing
-from xodus.storage.knowledge import ChunkRecord, CorpusLimitExceeded, KnowledgeStore, NotFound
+from xodus.storage.knowledge import ChunkRecord, CorpusLimitExceeded, KnowledgeStore, LeaseLost, NotFound
 
 DB_HEARTBEAT_EVERY_S = 20.0
 
@@ -167,6 +167,8 @@ def process_job(d: PipelineDeps, job: dict[str, Any]) -> dict[str, Any]:
     except CorpusLimitExceeded as exc:
         store.fail_document(doc["id"], exc.message)
         raise IngestError("corpus_limit", exc.message) from exc
+    except LeaseLost:
+        raise  # another worker owns the job now; leave the document and its checkpoint alone
     except Exception as exc:
         store.fail_document(doc["id"], f"Unexpected error ({type(exc).__name__}).")
         raise
