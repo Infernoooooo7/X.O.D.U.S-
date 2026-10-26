@@ -9,7 +9,7 @@ from __future__ import annotations
 import ipaddress
 import tomllib
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -17,6 +17,8 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_DIR = REPO_ROOT / "config"
+
+ModelCapability = Literal["completion", "structured", "tools", "thinking", "embedding", "vision"]
 
 
 class ConfigError(Exception):
@@ -63,6 +65,8 @@ class OllamaSettings(_Section):
     base_url: str = "http://127.0.0.1:11434"
     model: str = Field(min_length=1)
     expected_digest_prefix: str | None = None
+    capabilities: list[ModelCapability] = ["completion", "structured", "tools"]
+    embed_model: str = "qwen3-embedding:0.6b"
     num_ctx: int = Field(8192, ge=512, le=16384)
     allowed_num_ctx: list[int] = [4096, 8192, 16384]
     max_output_tokens: int = Field(1024, ge=1, le=8192)
@@ -85,6 +89,8 @@ class OllamaSettings(_Section):
     def _default_ctx_allowed(self) -> OllamaSettings:
         if self.num_ctx not in self.allowed_num_ctx:
             raise ValueError(f"num_ctx {self.num_ctx} is not in allowed_num_ctx {self.allowed_num_ctx}")
+        if self.max_output_tokens >= min(self.allowed_num_ctx):
+            raise ValueError("max_output_tokens must be smaller than every allowed num_ctx")
         return self
 
 
@@ -98,17 +104,163 @@ class EnvelopeSettings(_Section):
     max_queued: int = Field(4, ge=0, le=64)
 
 
-class CapabilitySettings(_Section):
-    list_files_root: Path
-    list_files_max_entries: int = Field(500, ge=1, le=10_000)
+class RootSettings(_Section):
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    path: Path
+    grants: list[Literal["fs.read", "fs.write"]] = ["fs.read"]
 
-    @field_validator("list_files_root")
+    @field_validator("path")
     @classmethod
-    def _root_is_dir(cls, v: Path) -> Path:
+    def _existing_folder(cls, v: Path) -> Path:
         path = _repo_path(v)
+        if path.is_symlink() or (path.exists() and path.is_junction()):
+            raise ValueError(f"root must not be a link: {path}")
         if not path.is_dir():
             raise ValueError(f"folder does not exist: {path}")
         return path.resolve()
+
+
+class CollectionGrantSettings(_Section):
+    """What a model-invoked capability may do with the knowledge collection of this name (deny by default)."""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    grants: list[Literal["kb.read"]] = ["kb.read"]
+
+
+class PermissionSettings(_Section):
+    global_grants: list[Literal["net.outbound", "exec.spawn"]] = []
+    roots: list[RootSettings] = []
+    collections: list[CollectionGrantSettings] = []
+
+    @model_validator(mode="after")
+    def _unique_ids(self) -> PermissionSettings:
+        ids = [r.id for r in self.roots]
+        if len(ids) != len(set(ids)):
+            raise ValueError("root ids must be unique")
+        names = [c.id for c in self.collections]
+        if len(names) != len(set(names)):
+            raise ValueError("collection grant ids must be unique")
+        return self
+
+
+class StorageSettings(_Section):
+    filename: str = Field("xodus.db", pattern=r"^[A-Za-z0-9._-]{1,64}\.db$")  # inside data_dir
+    cache_kib: int = Field(16384, ge=1024, le=262_144)  # SQLite page cache per connection
+    busy_timeout_ms: int = Field(10_000, ge=100, le=120_000)
+    pool_size: int = Field(4, ge=1, le=5)  # brief: connection pool <= 5
+
+
+class EmbeddingSettings(_Section):
+    dimensions: int = Field(1024, ge=32, le=4096)  # must equal the vector column; checked at startup
+    num_gpu: int | None = 0  # 0 = embedder on CPU (provisional; GPU vs CPU is a Gate G experiment); None = Ollama decides
+    query_template: str = "Instruct: Given a question, retrieve the passages that answer it.\nQuery: {text}"
+    document_template: str = "{text}"
+    batch_size: int = Field(16, ge=1, le=16)  # envelope: embedding batches <= 16 chunks
+    timeout_s: float = Field(120.0, gt=0, le=600)
+
+    @field_validator("query_template", "document_template")
+    @classmethod
+    def _has_slot(cls, v: str) -> str:
+        if v.count("{text}") != 1:
+            raise ValueError("template must contain {text} exactly once")
+        return v
+
+
+class KnowledgeSettings(_Section):
+    # supported workload envelope (master prompt 3.5)
+    max_file_mb: int = Field(50, ge=1, le=50)
+    max_pdf_pages: int = Field(500, ge=1, le=500)
+    max_chunks: int = Field(100_000, ge=1, le=100_000)
+    max_files_per_request: int = Field(200, ge=1, le=1000)
+    # untrusted-file defences
+    max_docx_uncompressed_mb: int = Field(200, ge=1, le=1024)
+    max_zip_ratio: int = Field(150, ge=2, le=10_000)
+    max_zip_entries: int = Field(5000, ge=10, le=100_000)
+    max_csv_field_kb: int = Field(1024, ge=1, le=16_384)
+    # chunking: tokens are estimated as characters / chars_per_token (no tokenizer is available)
+    chars_per_token: float = Field(4.0, ge=1.0, le=8.0)
+    chunk_min_tokens: int = Field(400, ge=50)
+    chunk_target_tokens: int = Field(500, ge=50)
+    chunk_max_tokens: int = Field(600, ge=50)
+    chunk_overlap_tokens: int = Field(50, ge=0, le=200)
+    # retrieval
+    k_vector: int = Field(40, ge=1, le=200)
+    k_fts: int = Field(40, ge=1, le=200)
+    rrf_k: int = Field(60, ge=1, le=1000)
+    default_k: int = Field(8, ge=1, le=20)
+    max_k: int = Field(20, ge=1, le=50)
+    evidence_token_budget: int = Field(2400, ge=200, le=6000)
+    max_query_chars: int = Field(500, ge=10, le=4000)
+    # "is the evidence sufficient": provisional heuristics, calibrated in this gate on a small corpus only
+    min_vector_similarity: float = Field(0.0, ge=0.0, le=1.0)  # 0 disables the vector test
+    min_term_match_ratio: float = Field(0.5, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> KnowledgeSettings:
+        if not self.chunk_min_tokens <= self.chunk_target_tokens <= self.chunk_max_tokens:
+            raise ValueError("chunk_min_tokens <= chunk_target_tokens <= chunk_max_tokens must hold")
+        if self.default_k > self.max_k:
+            raise ValueError("default_k must not exceed max_k")
+        return self
+
+
+class IngestionSettings(_Section):
+    worker_idle_timeout_s: float = Field(60.0, gt=0)  # backend stops the idle worker (brief section 2)
+    stall_timeout_s: float = Field(300.0, gt=0)  # backend kills a worker whose job heartbeat is older than this
+    watchdog_s: float = Field(180.0, gt=0)  # the worker ends itself if it makes no progress this long (hung parser)
+    max_attempts: int = Field(3, ge=1, le=10)  # a job that kills its worker this many times is failed
+    worker_memory_limit_mb: int | None = Field(1536, ge=64)  # Job Object safety net; the target is 400 MB peak
+    poll_interval_s: float = Field(1.0, gt=0)
+    monitor_interval_s: float = Field(1.0, gt=0)
+    max_restarts_per_minute: int = Field(5, ge=1)
+    embed_retries: int = Field(3, ge=0, le=10)
+    embed_retry_backoff_s: float = Field(1.0, ge=0)
+
+
+class CapabilitySettings(_Section):
+    list_files_root: str = "sandbox"  # id of a [[permissions.roots]] entry
+    list_files_max_entries: int = Field(500, ge=1, le=10_000)
+    disabled: list[str] = []
+
+
+class ArmBudgetSettings(_Section):
+    max_steps: int = Field(ge=1, le=20)
+    max_model_calls: int = Field(ge=1, le=40)
+    max_total_tokens: int = Field(ge=1000, le=1_000_000)
+    max_wall_s: float = Field(gt=0, le=3600)
+    max_replans: int = Field(0, ge=0, le=1)  # the brief allows at most one re-plan
+
+
+class ExecutorSettings(_Section):
+    default_arm: Literal["react", "plan_execute"] = "react"  # react = H3 control = baseline B0
+    max_active_tasks: int = Field(2, ge=1, le=8)
+    max_tool_output_bytes: int = Field(8000, ge=256, le=100_000)
+    seed: int | None = None
+    react: ArmBudgetSettings = ArmBudgetSettings(max_steps=10, max_model_calls=11, max_total_tokens=120_000, max_wall_s=600)
+    plan_execute: ArmBudgetSettings = ArmBudgetSettings(max_steps=6, max_model_calls=4, max_total_tokens=32_000,
+                                                        max_wall_s=300, max_replans=1)
+
+
+class ApprovalSettings(_Section):
+    ttl_s: float = Field(600, ge=0.05, le=86_400)
+
+
+class SupervisorSettings(_Section):
+    max_optional_processes: int = Field(2, ge=0, le=16)
+    optional_idle_timeout_s: float = Field(300, gt=0)
+    optional_memory_limit_mb: int | None = Field(512, ge=32)
+    reaper_interval_s: float = Field(5.0, gt=0)
+
+
+class PluginSettings(_Section):
+    dir: Path = Path("plugins")
+    trusted_entry_point_distributions: list[str] = []
+    approved_secrets: dict[str, list[str]] = {}  # capability id -> secret names it may receive
+
+    @field_validator("dir")
+    @classmethod
+    def _resolve(cls, v: Path) -> Path:
+        return _repo_path(v)
 
 
 class Settings(BaseSettings):
@@ -117,15 +269,26 @@ class Settings(BaseSettings):
     _file_data: ClassVar[dict[str, Any]] = {}
 
     log_dir: Path = Path("logs")
+    data_dir: Path = Path("data")
+    provider: Literal["ollama"] = "ollama"
     server: ServerSettings = ServerSettings()
     ollama: OllamaSettings
     chat: ChatSettings = ChatSettings()
     envelope: EnvelopeSettings = EnvelopeSettings()
-    capabilities: CapabilitySettings
+    permissions: PermissionSettings = PermissionSettings()
+    capabilities: CapabilitySettings = CapabilitySettings()
+    storage: StorageSettings = StorageSettings()
+    embedding: EmbeddingSettings = EmbeddingSettings()
+    knowledge: KnowledgeSettings = KnowledgeSettings()
+    ingestion: IngestionSettings = IngestionSettings()
+    executor: ExecutorSettings = ExecutorSettings()
+    approvals: ApprovalSettings = ApprovalSettings()
+    supervisor: SupervisorSettings = SupervisorSettings()
+    plugins: PluginSettings = PluginSettings()
 
-    @field_validator("log_dir")
+    @field_validator("log_dir", "data_dir")
     @classmethod
-    def _resolve_log_dir(cls, v: Path) -> Path:
+    def _resolve_dir(cls, v: Path) -> Path:
         return _repo_path(v)
 
     @classmethod

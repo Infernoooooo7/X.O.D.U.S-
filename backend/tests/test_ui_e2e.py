@@ -32,7 +32,8 @@ def backend(tmp_path: Path, ollama_url: str = "http://127.0.0.1:11434") -> Itera
     port = free_port()
     override = tmp_path / "override.toml"
     override.write_text(
-        f'log_dir = "{(tmp_path / "logs").as_posix()}"\n[server]\nport = {port}\n[ollama]\nbase_url = "{ollama_url}"\n',
+        f'log_dir = "{(tmp_path / "logs").as_posix()}"\ndata_dir = "{(tmp_path / "data").as_posix()}"\n'
+        f'[server]\nport = {port}\n[ollama]\nbase_url = "{ollama_url}"\n',
         encoding="utf-8",
     )
     settings = load_settings([CONFIG_DIR / "default.toml", override])

@@ -187,17 +187,32 @@ def system_memory() -> dict[str, int]:
 
 
 class ResourceSampler:
-    """Snapshots of XODUS-related processes. Browser and other apps are external to the budget."""
+    """Snapshots of XODUS-related processes. Browser and other apps are external to the budget.
 
-    def __init__(self, ollama_port: int) -> None:
+    Groups: xodus_app (backend), ollama (server and runners, found by port), and every process the
+    supervisor launched (its whole job), reported under its own tier.
+    """
+
+    def __init__(self, ollama_port: int, supervisor: Any = None) -> None:
         self.ollama_port = ollama_port
+        self.supervisor = supervisor
         self.nvml = Nvml()
         self.gpu = GpuCounters()
 
     def processes(self) -> list[tuple[psutil.Process, str, str]]:
+        supervised: dict[int, str] = {}
+        if self.supervisor is not None:
+            for mp in self.supervisor.managed():
+                for pid in mp.job.pids() or [mp.pid]:
+                    supervised[pid] = mp.tier
         found: list[tuple[psutil.Process, str, str]] = [
-            (p, "xodus_app", "core") for p in process_tree(backend_root())
+            (p, "xodus_app", "core") for p in process_tree(backend_root()) if p.pid not in supervised
         ]
+        for pid, tier in supervised.items():
+            try:
+                found.append((psutil.Process(pid), "optional" if tier == "optional" else "xodus_app", tier))
+            except psutil.Error:
+                pass
         pid = listener_pid(self.ollama_port)
         if pid:
             try:
@@ -228,6 +243,7 @@ class ResourceSampler:
                 "private_commit": total("private_commit"),
                 "uss_xodus_app": total("uss", "xodus_app"),
                 "uss_ollama": total("uss", "ollama"),
+                "uss_optional": total("uss", "optional"),
                 "gpu_dedicated_ollama": total("gpu_dedicated", "ollama"),
                 "gpu_shared_ollama": total("gpu_shared", "ollama"),
             },

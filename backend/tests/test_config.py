@@ -9,7 +9,12 @@ def test_checked_in_default_config_is_valid():
     settings = load_settings([CONFIG_DIR / "default.toml"])
     assert settings.server.host == "127.0.0.1"
     assert settings.ollama.num_ctx in settings.ollama.allowed_num_ctx
-    assert settings.capabilities.list_files_root.is_dir()
+    roots = {r.id: r for r in settings.permissions.roots}
+    assert roots[settings.capabilities.list_files_root].path.is_dir()
+    assert roots["sandbox"].grants == ["fs.read"]  # read-only by default
+    assert settings.permissions.global_grants == []  # no network or process-spawning grants by default
+    assert settings.executor.default_arm == "react"  # H3 control = baseline B0
+    assert settings.executor.plan_execute.max_replans == 1
 
 
 def test_valid_test_config_loads(make_settings):
@@ -57,6 +62,27 @@ def test_unknown_keys_are_rejected(make_settings):
 def test_env_overrides_file(make_settings, monkeypatch):
     monkeypatch.setenv("XODUS_OLLAMA__MODEL", "env-model:1b")
     assert make_settings().ollama.model == "env-model:1b"
+
+
+@pytest.mark.parametrize(
+    "extra, match",
+    [
+        ('\n[executor.plan_execute]\nmax_steps = 6\nmax_model_calls = 4\nmax_total_tokens = 32000\nmax_wall_s = 300\nmax_replans = 2\n', "max_replans"),
+        ('\n[permissions.extra]\n', "Extra inputs"),
+        ('\n[executor]\ndefault_arm = "yolo"\n', "default_arm"),
+        ('\n[[permissions.roots]]\nid = "sandbox"\npath = "."\n', "root ids must be unique"),
+        ('\n[ollama.sampling]\ntemperature = 9\n', "temperature"),
+    ],
+)
+def test_more_invalid_settings(make_settings, extra, match):
+    with pytest.raises(ConfigError, match=match):
+        make_settings(extra=extra)
+
+
+def test_global_grants_vocabulary_is_closed(make_settings, monkeypatch):
+    monkeypatch.setenv("XODUS_PERMISSIONS__GLOBAL_GRANTS", '["fs.write:everything"]')
+    with pytest.raises(ConfigError, match="global_grants"):
+        make_settings()
 
 
 def test_invalid_toml_is_reported(tmp_path):

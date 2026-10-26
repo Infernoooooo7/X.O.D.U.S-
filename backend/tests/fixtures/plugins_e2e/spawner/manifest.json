@@ -1,0 +1,20 @@
+{
+  "id": "test.spawner",
+  "name": "Spawner (test)",
+  "description": "Starts a long-sleeping child process and returns its PID. Test fixture only.",
+  "version": "1.0.0",
+  "input_schema": {"type": "object", "additionalProperties": false, "properties": {}},
+  "output_schema": {
+    "type": "object",
+    "required": ["grandchild", "pid"],
+    "properties": {"grandchild": {"type": "integer"}, "pid": {"type": "integer"}}
+  },
+  "permissions": ["exec.spawn", "net.none"],
+  "execution_mode": "subprocess",
+  "process_tier": "optional",
+  "timeout_s": 10,
+  "max_output_bytes": 10000,
+  "requires_approval": "never",
+  "side_effects": "none",
+  "entry": {"command": ["python", "main.py"]}
+}

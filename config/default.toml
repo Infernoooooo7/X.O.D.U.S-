@@ -3,6 +3,8 @@
 # Relative paths are resolved against the repository root.
 
 log_dir = "logs"
+data_dir = "data"     # XODUS's own data (audit log, plugin work folders); writes here need no approval
+provider = "ollama"
 
 [server]
 host = "127.0.0.1"   # loopback only; anything else is rejected at startup
@@ -12,6 +14,9 @@ port = 8765
 base_url = "http://127.0.0.1:11434"
 model = "qwen3:4b-instruct-2507-q4_K_M"
 expected_digest_prefix = "0edcdef34593"   # ollama.com library digest, checked against /api/tags
+# Declared model capabilities; each is used only after /api/show confirms it at startup.
+capabilities = ["completion", "structured", "tools"]
+embed_model = "qwen3-embedding:0.6b"      # not installed yet (Gate D)
 num_ctx = 8192
 allowed_num_ctx = [4096, 8192, 16384]
 max_output_tokens = 1024
@@ -32,6 +37,103 @@ max_message_chars = 8000
 max_running = 1
 max_queued = 4
 
+# Folders capabilities may touch, and what is granted on each. A capability is available only if every
+# permission it declares is granted here. Nothing a model outputs can add a root or a grant.
+[permissions]
+global_grants = []   # "net.outbound" and "exec.spawn" are never granted by default
+
+[[permissions.roots]]
+id = "sandbox"
+path = "examples/sandbox"
+grants = ["fs.read"]
+
+# Knowledge collections a model-invoked capability (kb.search) may read, by collection name.
+# Deny by default: with no entry here the model cannot search any collection. The user's own
+# API calls (ingest, search, ask, delete) are not limited by these grants.
+#   [[permissions.collections]]
+#   id = "docs"
+#   grants = ["kb.read"]
+
 [capabilities]
-list_files_root = "examples/sandbox"
+list_files_root = "sandbox"
 list_files_max_entries = 500
+disabled = []
+
+[storage]            # SQLite + FTS5 + sqlite-vec in data_dir/<filename> (PostgreSQL was not approved)
+filename = "xodus.db"
+cache_kib = 16384    # page cache per connection
+busy_timeout_ms = 10000
+pool_size = 4
+
+[embedding]          # the model is ollama.embed_model; vectors must match the database column
+dimensions = 1024
+num_gpu = 0          # 0 = CPU (provisional; CPU vs GPU is a Gate G experiment)
+batch_size = 16      # envelope: embedding batches <= 16 chunks
+timeout_s = 120      # a batch of 16 chunks took ~22 s on the CPU when measured (Gate D), longer under load
+query_template = "Instruct: Given a question, retrieve the passages that answer it.\nQuery: {text}"
+document_template = "{text}"
+
+[knowledge]          # supported workload envelope (master prompt 3.5) and retrieval parameters
+max_file_mb = 50
+max_pdf_pages = 500
+max_chunks = 100000
+max_files_per_request = 200
+max_docx_uncompressed_mb = 200
+max_zip_ratio = 150
+chunk_min_tokens = 400    # tokens are estimated as characters / chars_per_token (no tokenizer available)
+chunk_target_tokens = 500
+chunk_max_tokens = 600
+chunk_overlap_tokens = 50
+chars_per_token = 4.0
+k_vector = 40
+k_fts = 40
+rrf_k = 60
+default_k = 8
+max_k = 20
+evidence_token_budget = 2400
+max_query_chars = 500
+min_vector_similarity = 0.0   # provisional "insufficient evidence" tests; calibrated in the Gate D report
+min_term_match_ratio = 0.5
+
+[ingestion]
+worker_idle_timeout_s = 60    # the backend stops an idle ingestion worker after this long
+stall_timeout_s = 300
+watchdog_s = 180              # the worker ends itself if it makes no progress (hung parser)
+max_attempts = 3              # a job that kills its worker this many times is failed
+worker_memory_limit_mb = 1536 # Job Object safety net (the memory target is 400 MB)
+poll_interval_s = 1.0
+embed_retries = 3
+
+[executor]
+default_arm = "react"        # H3 control = baseline B0. "plan_execute" is the H3 treatment.
+max_active_tasks = 2
+max_tool_output_bytes = 8000 # tool output fed back to the model per step
+
+[executor.react]             # control: capped at 10 steps; the other limits are safety ceilings
+max_steps = 10
+max_model_calls = 11
+max_total_tokens = 120000
+max_wall_s = 600
+max_replans = 0
+
+[executor.plan_execute]      # treatment: plan, at most one re-plan, answer
+max_steps = 6
+max_model_calls = 4
+max_total_tokens = 32000
+max_wall_s = 300
+max_replans = 1
+
+[approvals]
+ttl_s = 600
+
+[supervisor]
+max_optional_processes = 2
+optional_idle_timeout_s = 300
+optional_memory_limit_mb = 512
+reaper_interval_s = 5
+
+[plugins]
+dir = "plugins"
+trusted_entry_point_distributions = []
+
+[plugins.approved_secrets]   # "<capability id>" = ["SECRET_NAME"]; values come from XODUS_SECRET_<NAME>

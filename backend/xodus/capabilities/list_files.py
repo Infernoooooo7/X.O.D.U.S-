@@ -1,24 +1,27 @@
-"""fs.list_files: list one folder inside a single configured root. Read-only, never follows links.
+"""fs.list_files: list one folder inside a configured root. Read-only; never follows links.
 
-Path rules (enforced before touching the filesystem, then re-checked on the resolved path):
-relative paths only; no drive letters, UNC or rooted paths; no '..'; no ':' (alternate data
-streams); no reserved device names (CON, NUL, COM1, ...); no 8.3 short-name components (FOO~1);
-no symlink or junction anywhere on the way; the resolved path must stay inside the root.
+The executor confines the path argument before this runs (it is declared with x-xodus-path); run()
+resolves it again with the same rules as defence in depth and to narrow the check-to-use window.
 """
 
 from __future__ import annotations
 
 import os
-import re
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from xodus.capabilities.registry import CapabilityManifest, InvalidInput, NotFound, PermissionDenied
-
-_RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
-_SHORT_NAME = re.compile(r"~\d")
+from xodus.capabilities.manifest import CapabilityManifest
+from xodus.capabilities.registry import (
+    CapabilityCancelled,
+    InProcessCapability,
+    InvalidInput,
+    InvocationContext,
+    NotFound,
+    PermissionDenied,
+)
+from xodus.security.paths import PathNotFound, PathViolation, WrongKind, is_link, resolve_existing
 
 
 class ListFilesInput(BaseModel):
@@ -27,68 +30,79 @@ class ListFilesInput(BaseModel):
     path: str = Field(".", max_length=260, description="Folder to list, relative to the configured root.")
 
 
-def _is_link(path: Path) -> bool:
-    return path.is_symlink() or path.is_junction()
+OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["root", "path", "entries", "truncated"],
+    "properties": {
+        "root": {"type": "string"},
+        "path": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "entries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name", "type", "size"],
+                "properties": {
+                    "name": {"type": "string"},
+                    "type": {"enum": ["file", "dir", "link"]},
+                    "size": {"type": ["integer", "null"]},
+                },
+            },
+        },
+    },
+}
 
 
-def resolve_inside(root: Path, rel: str) -> Path:
-    """Map a user-supplied relative path to a real folder inside root, or raise."""
-    if "\x00" in rel:
-        raise PermissionDenied("Path contains a NUL character.")
-    win = PureWindowsPath(rel)
-    if win.drive or win.root or rel.startswith(("\\\\", "//")):
-        raise PermissionDenied("Absolute paths, drive letters and UNC paths are not allowed; use a path relative to the root.")
-    parts = [p for p in win.parts if p not in ("", ".")]
-    for part in parts:
-        if part == "..":
-            raise PermissionDenied("'..' is not allowed.")
-        if ":" in part:
-            raise PermissionDenied("':' is not allowed (alternate data streams).")
-        if part.split(".")[0].rstrip(" ").lower() in _RESERVED:
-            raise PermissionDenied(f"{part!r} is a reserved Windows device name.")
-        if _SHORT_NAME.search(part):
-            raise PermissionDenied(f"{part!r} looks like an 8.3 short name; use the full folder name.")
-
-    current = root
-    for part in parts:
-        current = current / part
-        if _is_link(current):
-            raise PermissionDenied(f"{part!r} is a symbolic link or junction; links are not followed.")
-    try:
-        real = current.resolve(strict=True)
-    except FileNotFoundError as exc:
-        raise NotFound(f"No folder named {rel!r} under the root.") from exc
-    if not real.is_relative_to(root):
-        raise PermissionDenied("Path resolves outside the configured root.")
-    if not real.is_dir():
-        raise InvalidInput(f"{rel!r} is a file, not a folder.")
-    return real
+def capability_error(exc: PathViolation) -> Exception:
+    if isinstance(exc, PathNotFound):
+        return NotFound(exc.message)
+    if isinstance(exc, WrongKind):
+        return InvalidInput(exc.message)
+    return PermissionDenied(exc.message)
 
 
-class ListFiles:
-    input_model = ListFilesInput
-
-    def __init__(self, root: Path, max_entries: int = 500) -> None:
-        if _is_link(root):
+class ListFiles(InProcessCapability):
+    def __init__(self, root_id: str, root: Path, max_entries: int = 500) -> None:
+        if is_link(root):
             raise ValueError(f"capability root must not be a link: {root}")
         self.root = root.resolve(strict=True)
+        self.root_id = root_id
         self.max_entries = max_entries
+        schema = ListFilesInput.model_json_schema()
+        schema["properties"]["path"].update({"x-xodus-path": f"fs.read:{root_id}", "x-xodus-path-kind": "dir"})
         self.manifest = CapabilityManifest(
             id="fs.list_files",
             name="List files",
             description="List the files and folders in one folder inside the configured sandbox root. Read-only.",
-            version="0.1.0",
-            permissions=(f"fs.read:{self.root.name}", "net.none", "exec.none"),
+            version="0.2.0",
+            input_schema=schema,
+            output_schema=OUTPUT_SCHEMA,
+            permissions=(f"fs.read:{root_id}", "net.none", "exec.none"),
+            execution_mode="in_process",
+            process_tier="none",
+            resource_class="light",
             timeout_s=5.0,
             max_output_bytes=256_000,
+            cancellable=True,
+            requires_approval="never",
+            side_effects="none",
+            undoable=None,
         )
 
-    def run(self, args: ListFilesInput) -> dict[str, Any]:
-        folder = resolve_inside(self.root, args.path)
+    def run(self, args: dict[str, Any], ctx: InvocationContext) -> dict[str, Any]:
+        rel = args.get("path", ".")
+        try:
+            folder = resolve_existing(self.root, rel, "dir")
+        except PathViolation as exc:
+            raise capability_error(exc) from exc
         entries: list[dict[str, Any]] = []
         truncated = False
         with os.scandir(folder) as it:
             for entry in it:
+                if ctx.cancel.is_set():
+                    raise CapabilityCancelled("Listing cancelled.")
                 if len(entries) >= self.max_entries:
                     truncated = True
                     break
@@ -100,5 +114,5 @@ class ListFiles:
                 else:
                     entries.append({"name": entry.name, "type": "file", "size": entry.stat(follow_symlinks=False).st_size})
         entries.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
-        rel = folder.relative_to(self.root).as_posix()
-        return {"root": self.root.name, "path": "." if rel == "." else rel, "entries": entries, "truncated": truncated}
+        rel_out = folder.relative_to(self.root).as_posix()
+        return {"root": self.root.name, "path": "." if rel_out == "." else rel_out, "entries": entries, "truncated": truncated}

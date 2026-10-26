@@ -132,11 +132,18 @@ def port_busy(port: int) -> bool:
     return listener_pid(port) is not None
 
 
-def run_ps(script: Path) -> str:
-    out = subprocess.run(["powershell", "-NoProfile", "-File", str(script)], capture_output=True, text=True)
-    if out.returncode != 0:
-        raise RuntimeError(f"{script.name} failed: {out.stdout} {out.stderr}")
-    return out.stdout.strip()
+def run_ps(script: Path, log_dir: Path) -> str:
+    # Output goes to a file, not a pipe: start-ollama.ps1 leaves ollama.exe running, and a child that
+    # inherits a pipe handle keeps it open, so reading a pipe to EOF would block forever (this hung
+    # the first benchmark attempt).
+    log = log_dir / f"{script.stem}.log"
+    with open(log, "w", encoding="utf-8") as fh:
+        code = subprocess.run(["powershell", "-NoProfile", "-File", str(script)], stdin=subprocess.DEVNULL,
+                              stdout=fh, stderr=subprocess.STDOUT, timeout=120).returncode
+    text = log.read_text(encoding="utf-8", errors="replace").strip()
+    if code != 0:
+        raise RuntimeError(f"{script.name} failed ({code}): {text}")
+    return text
 
 
 def wait_health(port: int, timeout: float = 60) -> dict[str, Any]:
@@ -217,7 +224,7 @@ def one_run(index: int, settings: Any, prompts: list[str], ctxs: list[int], base
     sampler.start()
     cpu0, wall0 = sampler.cpu_seconds(), time.time()
     t_services = time.time()
-    print(f"[run {index}] starting Ollama: {run_ps(START_OLLAMA)}", flush=True)
+    print(f"[run {index}] starting Ollama: {run_ps(START_OLLAMA, log_dir)}", flush=True)
     log = (log_dir / f"backend-run{index}.log").open("w", encoding="utf-8")
     backend = subprocess.Popen([str(VENV_PY), "-m", "xodus"], cwd=REPO_ROOT / "backend", stdout=log, stderr=subprocess.STDOUT)
     sampler.backend = psutil.Process(backend.pid)
@@ -242,7 +249,7 @@ def one_run(index: int, settings: Any, prompts: list[str], ctxs: list[int], base
         p.terminate()
     backend.wait(timeout=15)
     log.close()
-    run_ps(STOP_OLLAMA)
+    run_ps(STOP_OLLAMA, log_dir)
     time.sleep(3)
     sampler.stop()
 

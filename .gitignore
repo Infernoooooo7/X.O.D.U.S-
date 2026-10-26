@@ -17,6 +17,7 @@ config/local.toml
 
 # Runtime output
 logs/
+data/
 experiments/results/
 
 # Editor / Agent

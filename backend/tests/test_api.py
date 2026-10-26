@@ -24,7 +24,8 @@ def parse_sse(body: str) -> list[tuple[str, dict]]:
     return events
 
 
-def fake_ollama(chat_lines: list[dict] | None = None, chat_status: int = 200, chat_body: dict | None = None):
+def fake_ollama(chat_lines: list[dict] | None = None, chat_status: int = 200, chat_body: dict | None = None,
+                capabilities: list[str] | None = None):
     calls: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -32,6 +33,9 @@ def fake_ollama(chat_lines: list[dict] | None = None, chat_status: int = 200, ch
             return httpx.Response(200, json={"version": "0.0-test"})
         if request.url.path == "/api/tags":
             return httpx.Response(200, json={"models": [{"name": "test-model:latest", "digest": "abc123", "size": 1}]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": capabilities or ["completion", "tools"],
+                                             "details": {"family": "test"}, "model_info": {"test.context_length": 32768}})
         if request.url.path == "/api/chat":
             calls.append(json.loads(request.content))
             if chat_status != 200:
@@ -61,6 +65,15 @@ def test_health_ok_with_mock(make_settings):
         body = client.get("/api/health").json()
     assert body["backend"]["status"] == "ok"
     assert body["ollama"]["status"] == "ok" and body["ollama"]["digest"] == "abc123"
+    # declared [completion, structured, tools]; Ollama reports completion + tools -> all three confirmed
+    assert body["model_capabilities"]["confirmed"] == ["completion", "structured", "tools"]
+
+
+def test_undeclared_or_unreported_capabilities_are_not_confirmed(make_settings):
+    transport, _ = fake_ollama(capabilities=["completion"])  # Ollama does not report tool support
+    with client_for(make_settings(), transport) as client:
+        body = client.get("/api/health").json()
+    assert body["model_capabilities"]["confirmed"] == ["completion", "structured"]
 
 
 def test_chat_streams_tokens_then_done(make_settings):
@@ -133,9 +146,11 @@ def test_capability_endpoints(make_settings):
         ok = client.post("/api/capabilities/fs.list_files/invoke", json={"args": {"path": "sub"}})
         assert ok.status_code == 200 and ok.json()["result"]["entries"][0]["name"] == "b.txt"
         denied = client.post("/api/capabilities/fs.list_files/invoke", json={"args": {"path": "../outside"}})
-        assert denied.status_code == 403 and denied.json()["error"]["code"] == "permission_denied"
+        assert denied.status_code == 403 and denied.json()["error"]["code"] == "path_violation"
         missing = client.post("/api/capabilities/nope/invoke", json={"args": {}})
         assert missing.status_code == 404
+        extra = client.post("/api/capabilities/fs.list_files/invoke", json={"args": {"path": ".", "root": "C:\\"}})
+        assert extra.status_code == 422 and extra.json()["error"]["code"] == "invalid_arguments"
 
 
 def test_logs_written_as_json(make_settings, tmp_path):

@@ -1,4 +1,7 @@
-"""HTTP API: health, streamed chat over SSE, capability listing/invocation, and the static UI."""
+"""HTTP API: health, streamed chat (SSE), capabilities, tasks (SSE events), approvals, processes,
+audit verification, and the static UI. Bound to loopback; Host header allow-listed; state-changing
+requests from another browser origin are refused.
+"""
 
 from __future__ import annotations
 
@@ -7,27 +10,38 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from xodus import __version__
-from xodus.capabilities.list_files import ListFiles
-from xodus.capabilities.registry import CapabilityError, CapabilityRegistry
+from xodus.capabilities.discovery import discover
+from xodus.capabilities.registry import CapabilityError, CapabilityRegistry, InvocationContext
 from xodus.config.settings import REPO_ROOT, Settings
 from xodus.obs import log_event
-from xodus.providers.ollama import OllamaProvider, ProviderError
+from xodus.orchestrator.gate import GateContext, ProposedStep, StepGate
+from xodus.orchestrator.runner import ExecutorDeps, invoke_checked, roots_for
+from xodus.orchestrator.task import TaskLog
+from xodus.orchestrator.tasks import TaskLimit, TaskManager
+from xodus.providers import build_provider
+from xodus.providers.base import ModelProvider, ProviderError, RequestBudget
 from xodus.resources.admission import AdmissionGate, QueueFull
 from xodus.resources.sampler import Nvml, ResourceSampler, mib
+from xodus.security.approvals import ApprovalError, ApprovalStore
+from xodus.security.audit import AuditLog, verify
+from xodus.security.policy import PermissionPolicy, Root
+from xodus.supervisor.supervisor import Supervisor
 
 UI_DIR = REPO_ROOT / "frontend" / "out"
+GATE_STATUS = {"unknown_capability": 404, "not_found": 404, "not_offered": 403, "permission_denied": 403,
+               "path_violation": 403, "unavailable": 409, "invalid_arguments": 422}
 
 
 class ChatRequest(BaseModel):
@@ -44,8 +58,22 @@ class InvokeRequest(BaseModel):
     args: dict[str, Any] = {}
 
 
+class TaskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str = Field(min_length=1)
+    arm: str | None = None
+
+
+class ApprovalDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str
+    action_hash: str = Field(min_length=1, max_length=128)
+
+
 def sse(event: str, data: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
 class _VramPeak:
@@ -86,6 +114,7 @@ def _resource_summary(snap: dict[str, Any], vram_peak: int | None) -> dict[str, 
         "uss_total_mib": mib(snap["totals"]["uss"]),
         "uss_xodus_app_mib": mib(snap["totals"]["uss_xodus_app"]),
         "uss_ollama_mib": mib(snap["totals"]["uss_ollama"]),
+        "uss_optional_mib": mib(snap["totals"]["uss_optional"]),
         "uss_complete": snap["uss_complete"],
         "rss_total_mib": mib(snap["totals"]["rss"]),
         "private_commit_total_mib": mib(snap["totals"]["private_commit"]),
@@ -96,8 +125,8 @@ def _resource_summary(snap: dict[str, Any], vram_peak: int | None) -> dict[str, 
         "device_vram_total_mib": mib(vram.get("total")),
         "system_in_use_mib": mib(snap["system_memory"]["in_use"]),
         "processes": [
-            {"pid": p["pid"], "name": p["name"], "group": p["group"], "uss_mib": mib(p["uss"]), "rss_mib": mib(p["rss"]),
-             "gpu_dedicated_mib": mib(p["gpu_dedicated"])}
+            {"pid": p["pid"], "name": p["name"], "group": p["group"], "tier": p["tier"], "uss_mib": mib(p["uss"]),
+             "rss_mib": mib(p["rss"]), "gpu_dedicated_mib": mib(p["gpu_dedicated"])}
             for p in snap["processes"]
         ],
         "sample_ms": snap["sample_ms"],
@@ -105,48 +134,107 @@ def _resource_summary(snap: dict[str, Any], vram_peak: int | None) -> dict[str, 
     }
 
 
+def build_policy(settings: Settings) -> PermissionPolicy:
+    roots = [Root(r.id, r.path, frozenset(r.grants)) for r in settings.permissions.roots]
+    collections = {c.id: c.grants for c in settings.permissions.collections}
+    return PermissionPolicy(roots, settings.permissions.global_grants, collections)
+
+
 def create_app(
     settings: Settings,
-    provider: OllamaProvider | None = None,
+    provider: ModelProvider | None = None,
     sampler: ResourceSampler | None = None,
+    supervisor: Supervisor | None = None,
+    entry_points: Callable[..., Any] | None = None,
 ) -> FastAPI:
-    provider = provider or OllamaProvider(settings.ollama)
-    sampler = sampler or ResourceSampler(ollama_port=urlparse(settings.ollama.base_url).port or 11434)
-    gate = AdmissionGate(settings.envelope.max_running, settings.envelope.max_queued)
-    registry = CapabilityRegistry()
-    registry.register(ListFiles(settings.capabilities.list_files_root, settings.capabilities.list_files_max_entries))
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    audit = AuditLog(settings.data_dir / "audit.jsonl")
+    policy = build_policy(settings)
+    limit_mb = settings.supervisor.optional_memory_limit_mb
+    supervisor = supervisor or Supervisor(
+        max_optional=settings.supervisor.max_optional_processes,
+        idle_timeout_s=settings.supervisor.optional_idle_timeout_s,
+        memory_limit_bytes=limit_mb * 2**20 if limit_mb else None,
+        audit=audit,
+    )
+    provider = provider or build_provider(settings, on_event=lambda event, **fields: audit.append(event, **fields))
+    registry = CapabilityRegistry(policy, settings.capabilities.disabled, provider.confirmed_capabilities)
+    discover(registry, settings=settings, policy=policy, supervisor=supervisor,
+             **({"entry_points": entry_points} if entry_points is not None else {}))
+    gate = StepGate(registry, policy, settings.data_dir)
+    approvals = ApprovalStore(audit, ttl_s=settings.approvals.ttl_s)
+    admission = AdmissionGate(settings.envelope.max_running, settings.envelope.max_queued)
+    deps = ExecutorDeps(provider=provider, registry=registry, gate=gate, approvals=approvals, audit=audit,
+                        admission=admission, policy=policy, seed=settings.executor.seed)
+    tasks = TaskManager(deps, settings, TaskLog(settings.log_dir / "tasks.jsonl"))
+    sampler = sampler or ResourceSampler(ollama_port=urlparse(settings.ollama.base_url).port or 11434, supervisor=supervisor)
     started_at = time.time()
+    origins = {f"http://127.0.0.1:{settings.server.port}", f"http://localhost:{settings.server.port}"}
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        health = await provider.health()
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        try:
+            info = (await provider.probe()).public()
+        except ProviderError as exc:
+            info = {"error": exc.code, "message": exc.message}
         log_event(
             "startup",
             version=__version__,
             bind=f"{settings.server.host}:{settings.server.port}",
-            ollama=health,
+            ollama=await provider.health(),
+            model_probe=info,
             measurement={"nvml": sampler.nvml.error or "ok", "gpu_counters": sampler.gpu.error or "ok"},
-            capabilities=[c["id"] for c in registry.describe()],
+            capabilities=registry.available_ids(),
+            rejected=registry.describe_rejected(),
+            audit_head={"seq": audit.seq, "hash": audit.head},
             ui_built=UI_DIR.is_dir(),
         )
+        reaper = asyncio.create_task(supervisor.run_reaper(settings.supervisor.reaper_interval_s))
+        app.state.deps = deps
+        app.state.tasks = tasks
+        app.state.supervisor = supervisor
         yield
+        await tasks.shutdown()
+        reaper.cancel()
+        with suppress(asyncio.CancelledError):
+            await reaper
+        await asyncio.to_thread(supervisor.stop_all, "shutdown")
         await provider.aclose()
         sampler.close()
         log_event("shutdown")
 
     app = FastAPI(title="XODUS", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
+
+    @app.middleware("http")
+    async def same_origin_only(request: Request, call_next: Callable[..., Any]) -> Any:
+        """Refuse state-changing requests that a browser sends from another origin (CSRF, local web pages)."""
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("origin")
+            site = request.headers.get("sec-fetch-site")
+            if (origin is not None and origin not in origins) or (site is not None and site not in ("same-origin", "none")):
+                log_event("cross_origin_refused", logging.WARNING, path=request.url.path, origin=origin, site=site)
+                return JSONResponse({"detail": "Cross-origin request refused."}, status_code=403)
+        return await call_next(request)
+
     # Requests must name the loopback host we bind to; blocks DNS-rebinding style Host headers.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
+    # ------------------------------------------------------------------ health
+
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
+        confirmed = provider.confirmed_capabilities()
         return {
             "backend": {"status": "ok", "version": __version__, "uptime_s": round(time.time() - started_at, 1)},
             "ollama": await provider.health(),
-            "envelope": {"max_running": gate.max_running, "max_queued": gate.max_queued,
-                         "running": gate.running, "queued": gate.waiting},
+            "model_capabilities": {"declared": sorted(settings.ollama.capabilities),
+                                   "confirmed": sorted(confirmed) if confirmed is not None else None},
+            "envelope": {"max_running": admission.max_running, "max_queued": admission.max_queued,
+                         "running": admission.running, "queued": admission.waiting},
             "measurement": {"nvml": sampler.nvml.error or "ok", "gpu_counters": sampler.gpu.error or "ok"},
         }
+
+    # ------------------------------------------------------------------ chat (Gate B slice)
 
     @app.post("/api/chat")
     async def chat(req: ChatRequest) -> StreamingResponse:
@@ -159,29 +247,28 @@ def create_app(
         messages = [{"role": "user", "content": req.message}]
         if settings.chat.system_prompt:
             messages.insert(0, {"role": "system", "content": settings.chat.system_prompt})
+        budget = RequestBudget(num_ctx=num_ctx, max_output_tokens=settings.ollama.max_output_tokens,
+                               timeout_s=settings.ollama.request_timeout_s)
         return StreamingResponse(
-            _chat_events(request_id, messages, num_ctx, req.seed, len(req.message)),
+            _chat_events(request_id, messages, budget, req.seed, len(req.message)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Request-ID": request_id},
         )
 
-    async def _chat_events(
-        request_id: str, messages: list[dict[str, str]], num_ctx: int, seed: int | None, message_chars: int
-    ) -> AsyncIterator[str]:
+    async def _chat_events(request_id: str, messages: list[dict[str, Any]], budget: RequestBudget, seed: int | None,
+                           message_chars: int) -> AsyncIterator[str]:
         t0 = time.perf_counter()
-        base = {"request_id": request_id, "model": provider.model, "num_ctx": num_ctx, "message_chars": message_chars}
+        base = {"request_id": request_id, "model": provider.model, "num_ctx": budget.num_ctx, "message_chars": message_chars}
         yield sse("meta", base)
         t_first: float | None = None
         try:
-            async with gate.slot():
+            async with admission.slot():
                 t_admitted = time.perf_counter()
                 peak = _VramPeak(sampler.nvml)
                 peak.start()
                 final: dict[str, Any] = {}
                 try:
-                    async for chunk in provider.stream_chat(
-                        messages, num_ctx=num_ctx, max_output_tokens=settings.ollama.max_output_tokens, seed=seed
-                    ):
+                    async for chunk in provider.stream(messages, budget, seed=seed):
                         if chunk.final is not None:
                             final = chunk.final
                             break
@@ -227,22 +314,118 @@ def create_app(
             yield sse("error", {**base, "code": "internal_error",
                                 "message": f"Unexpected backend error (request {request_id}); see logs/xodus.jsonl."})
 
+    # ------------------------------------------------------------------ capabilities
+
     @app.get("/api/capabilities")
     async def list_capabilities() -> list[dict[str, Any]]:
         return registry.describe()
 
+    @app.get("/api/capabilities/rejected")
+    async def rejected_capabilities() -> list[dict[str, Any]]:
+        return registry.describe_rejected()
+
     @app.post("/api/capabilities/{cap_id}/invoke")
     async def invoke(cap_id: str, req: InvokeRequest) -> JSONResponse:
+        """Direct, user-initiated call of a read-only capability. Goes through the same StepGate as tasks."""
         t0 = time.perf_counter()
+        decision = gate.evaluate(ProposedStep(0, cap_id, req.args, "user"),
+                                 GateContext(task_id="direct", allowed=frozenset(registry.ids())))
+        audit.append("capability_requested", task_id=None, capability=cap_id, args=req.args, origin="user",
+                     verdict=decision.verdict, code=decision.code)
+
+        def refuse(code: str, message: str, status: int) -> JSONResponse:
+            audit.append("capability_blocked", task_id=None, capability=cap_id, code=code, message=message)
+            log_event("capability_call", logging.WARNING, capability=cap_id, args=req.args, outcome=code, message=message)
+            return JSONResponse({"ok": False, "error": {"code": code, "message": message}}, status)
+
+        if decision.verdict == "deny":
+            return refuse(decision.code, decision.message, GATE_STATUS.get(decision.code, 400))
+        cap = decision.capability
+        assert cap is not None and decision.args is not None
+        if decision.verdict == "approve" or cap.manifest.side_effects != "none":
+            return refuse("approval_required", "This capability changes things; run it as a task so it can be approved.", 409)
+        ctx = InvocationContext(task_id=None, step_index=0, roots=roots_for(cap.manifest, policy))
         try:
-            result = await registry.invoke(cap_id, req.args)
+            result, size = await invoke_checked(cap, decision.args, ctx, cap.manifest.timeout_s)
         except CapabilityError as exc:
-            log_event("capability_call", logging.WARNING, capability=cap_id, args=req.args, outcome=exc.code,
-                      message=exc.message)
-            return JSONResponse({"ok": False, "error": {"code": exc.code, "message": exc.message}}, exc.status)
+            return refuse(exc.code, exc.message, exc.status)
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+        audit.append("capability_result", task_id=None, capability=cap_id, bytes=size, duration_ms=duration_ms)
         log_event("capability_call", capability=cap_id, args=req.args, outcome="ok", duration_ms=duration_ms)
         return JSONResponse({"ok": True, "result": result, "duration_ms": duration_ms})
+
+    # ------------------------------------------------------------------ tasks
+
+    @app.post("/api/tasks", status_code=202)
+    async def create_task(req: TaskRequest) -> dict[str, Any]:
+        if len(req.goal) > settings.chat.max_message_chars:
+            raise HTTPException(422, f"Goal is longer than {settings.chat.max_message_chars} characters.")
+        try:
+            task = tasks.create(req.goal, req.arm)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except TaskLimit as exc:
+            raise HTTPException(429, str(exc)) from exc
+        return {"task_id": task.id, "arm": task.arm, "events": f"/api/tasks/{task.id}/events"}
+
+    @app.get("/api/tasks")
+    async def list_tasks() -> list[dict[str, Any]]:
+        return [t.public() for t in tasks.list()]
+
+    def _task(task_id: str) -> Any:
+        task = tasks.get(task_id)
+        if task is None:
+            raise HTTPException(404, "No task with that id.")
+        return task
+
+    @app.get("/api/tasks/{task_id}")
+    async def get_task(task_id: str) -> dict[str, Any]:
+        return _task(task_id).public()
+
+    @app.get("/api/tasks/{task_id}/events")
+    async def task_events(task_id: str, after: int = 0) -> StreamingResponse:
+        task = _task(task_id)
+
+        async def stream() -> AsyncIterator[str]:
+            async for event in task.follow(after):
+                yield sse(event["type"], event)
+
+        return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+    @app.post("/api/tasks/{task_id}/cancel", status_code=202)
+    async def cancel_task(task_id: str) -> dict[str, Any]:
+        task = _task(task_id)
+        if task.terminal:
+            raise HTTPException(409, f"Task already finished ({task.status}).")
+        await tasks.cancel(task)
+        return {"task_id": task.id, "status": task.status}
+
+    # ------------------------------------------------------------------ approvals
+
+    @app.get("/api/approvals")
+    async def list_approvals(status: str | None = "pending") -> list[dict[str, Any]]:
+        return [r.public() for r in approvals.list(None if status == "all" else status)]
+
+    @app.post("/api/approvals/{approval_id}")
+    async def decide(approval_id: str, body: ApprovalDecision) -> JSONResponse:
+        try:
+            req = approvals.resolve(approval_id, body.decision, body.action_hash)
+        except ApprovalError as exc:
+            return JSONResponse({"ok": False, "error": {"code": exc.code, "message": exc.message}}, exc.status)
+        return JSONResponse({"ok": True, "approval": req.public()})
+
+    # ------------------------------------------------------------------ processes and audit
+
+    @app.get("/api/processes")
+    async def processes() -> dict[str, Any]:
+        snap = await asyncio.to_thread(sampler.snapshot)
+        return {"supervised": supervisor.snapshot(), "processes": _resource_summary(snap, None)["processes"],
+                "excluded": snap["excluded"]}
+
+    @app.get("/api/audit/verify")
+    async def audit_verify() -> dict[str, Any]:
+        result = await asyncio.to_thread(verify, audit.path)
+        return {"ok": result.ok, "records": result.records, "first_bad_seq": result.first_bad_seq, "reason": result.reason}
 
     if UI_DIR.is_dir():
         app.mount("/", StaticFiles(directory=UI_DIR, html=True), name="ui")
@@ -252,4 +435,7 @@ def create_app(
         async def ui_missing() -> str:
             return "<p>XODUS backend is running, but the UI is not built. See README.md (Build the UI).</p>"
 
+    app.state.registry = registry
+    app.state.audit = audit
+    app.state.approvals = approvals
     return app
