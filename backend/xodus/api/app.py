@@ -22,9 +22,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from xodus import __version__
+from xodus.api.knowledge import KnowledgeContext, register_knowledge_routes
 from xodus.capabilities.discovery import discover
+from xodus.capabilities.kb_search import KnowledgeSearch
 from xodus.capabilities.registry import CapabilityError, CapabilityRegistry, InvocationContext
 from xodus.config.settings import REPO_ROOT, Settings
+from xodus.ingestion.pipeline import RootInfo
+from xodus.ingestion.service import IngestionService
+from xodus.memory.manager import MemoryManager
 from xodus.obs import log_event
 from xodus.orchestrator.gate import GateContext, ProposedStep, StepGate
 from xodus.orchestrator.runner import ExecutorDeps, invoke_checked, roots_for
@@ -34,9 +39,14 @@ from xodus.providers import build_provider
 from xodus.providers.base import ModelProvider, ProviderError, RequestBudget
 from xodus.resources.admission import AdmissionGate, QueueFull
 from xodus.resources.sampler import Nvml, ResourceSampler, mib
+from xodus.retrieval.answer import AnswerService
+from xodus.retrieval.hybrid import Retriever
 from xodus.security.approvals import ApprovalError, ApprovalStore
 from xodus.security.audit import AuditLog, verify
 from xodus.security.policy import PermissionPolicy, Root
+from xodus.storage.knowledge import KnowledgeStore
+from xodus.storage.memory import MemoryStore
+from xodus.storage.sqlite import Database
 from xodus.supervisor.supervisor import Supervisor
 
 UI_DIR = REPO_ROOT / "frontend" / "out"
@@ -158,15 +168,39 @@ def create_app(
         audit=audit,
     )
     provider = provider or build_provider(settings, on_event=lambda event, **fields: audit.append(event, **fields))
+
+    # Storage. Opening runs the migrations and refuses a database whose vector size disagrees with the config.
+    db = Database(settings.data_dir / settings.storage.filename, embedding_dim=settings.embedding.dimensions,
+                  cache_kib=settings.storage.cache_kib, busy_timeout_ms=settings.storage.busy_timeout_ms,
+                  pool_size=settings.storage.pool_size)
+    applied_migrations = db.open()
+    store = KnowledgeStore(db, max_chunks=settings.knowledge.max_chunks)
+    memory = MemoryManager(MemoryStore(db), audit)
+
+    async def embed_query(text: str) -> list[float]:
+        return (await provider.embed([text]))[0]
+
+    retriever = Retriever(store, settings.knowledge, settings.embedding, embed_query)
+
     registry = CapabilityRegistry(policy, settings.capabilities.disabled, provider.confirmed_capabilities)
     discover(registry, settings=settings, policy=policy, supervisor=supervisor,
              **({"entry_points": entry_points} if entry_points is not None else {}))
+    readable = policy.readable_collections()
+    if readable:  # a model can search only the collections the configuration grants it (deny by default)
+        registry.register(KnowledgeSearch(retriever, store, readable), "builtin")
     gate = StepGate(registry, policy, settings.data_dir)
     approvals = ApprovalStore(audit, ttl_s=settings.approvals.ttl_s)
     admission = AdmissionGate(settings.envelope.max_running, settings.envelope.max_queued)
     deps = ExecutorDeps(provider=provider, registry=registry, gate=gate, approvals=approvals, audit=audit,
                         admission=admission, policy=policy, seed=settings.executor.seed)
     tasks = TaskManager(deps, settings, TaskLog(settings.log_dir / "tasks.jsonl"))
+    ingestion = IngestionService(settings, store, supervisor,
+                                 {r.id: RootInfo(r.path, frozenset(r.grants)) for r in settings.permissions.roots}, audit)
+    knowledge = KnowledgeContext(settings, store, memory, ingestion, retriever,
+                                 AnswerService(retriever, provider, admission, settings), audit)
+    embedding_status: dict[str, Any] = {"status": "unchecked", "model": settings.ollama.embed_model,
+                                        "configured_dimensions": settings.embedding.dimensions,
+                                        "num_gpu": settings.embedding.num_gpu}
     sampler = sampler or ResourceSampler(ollama_port=urlparse(settings.ollama.base_url).port or 11434, supervisor=supervisor)
     started_at = time.time()
     origins = {f"http://127.0.0.1:{settings.server.port}", f"http://localhost:{settings.server.port}"}
@@ -177,6 +211,7 @@ def create_app(
             info = (await provider.probe()).public()
         except ProviderError as exc:
             info = {"error": exc.code, "message": exc.message}
+        await _probe_embedder()
         log_event(
             "startup",
             version=__version__,
@@ -187,21 +222,51 @@ def create_app(
             capabilities=registry.available_ids(),
             rejected=registry.describe_rejected(),
             audit_head={"seq": audit.seq, "hash": audit.head},
+            storage={"database": str(db.path), "migrations_applied": applied_migrations, "embedding": embedding_status},
             ui_built=UI_DIR.is_dir(),
         )
         reaper = asyncio.create_task(supervisor.run_reaper(settings.supervisor.reaper_interval_s))
+        monitor = asyncio.create_task(_ingestion_monitor())
         app.state.deps = deps
         app.state.tasks = tasks
         app.state.supervisor = supervisor
         yield
         await tasks.shutdown()
-        reaper.cancel()
-        with suppress(asyncio.CancelledError):
-            await reaper
-        await asyncio.to_thread(supervisor.stop_all, "shutdown")
+        for background in (monitor, reaper):
+            background.cancel()
+            with suppress(asyncio.CancelledError):
+                await background
+        await asyncio.to_thread(supervisor.stop_all, "shutdown")  # includes the ingestion worker
         await provider.aclose()
         sampler.close()
+        db.close()
         log_event("shutdown")
+
+    async def _ingestion_monitor() -> None:
+        while True:
+            await asyncio.sleep(settings.ingestion.monitor_interval_s)
+            try:
+                await asyncio.to_thread(ingestion.tick)
+            except Exception as exc:  # the monitor must never die
+                log_event("ingestion_monitor_error", logging.ERROR, detail=repr(exc))
+
+    async def _probe_embedder() -> None:
+        """Does the embedding model exist, and are its vectors at least as large as embedding.dimensions?
+        Uses /api/show, which does not load the model into memory."""
+        try:
+            info = await provider.model_info(settings.ollama.embed_model)
+        except ProviderError as exc:
+            embedding_status.update(status="unavailable", code=exc.code, message=exc.message)
+            return
+        native = info.embedding_length
+        if native is None:
+            embedding_status.update(status="unverified", message="The provider did not report the embedding size.")
+        elif native < settings.embedding.dimensions:
+            embedding_status.update(status="dimension_mismatch", native_dimensions=native,
+                                    message=f"The model produces {native}-dimensional vectors but embedding.dimensions is "
+                                            f"{settings.embedding.dimensions}.")
+        else:
+            embedding_status.update(status="ok", native_dimensions=native, digest=info.digest)
 
     app = FastAPI(title="XODUS", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
 
@@ -232,6 +297,9 @@ def create_app(
             "envelope": {"max_running": admission.max_running, "max_queued": admission.max_queued,
                          "running": admission.running, "queued": admission.waiting},
             "measurement": {"nvml": sampler.nvml.error or "ok", "gpu_counters": sampler.gpu.error or "ok"},
+            "knowledge": {"embedding": embedding_status, "ingestion": ingestion.status(),
+                          "store": (lambda s: {k: s[k] for k in ("schema_version", "collections", "documents", "chunks", "jobs",
+                                                                 "memory_items")})(await asyncio.to_thread(store.stats))},
         }
 
     # ------------------------------------------------------------------ chat (Gate B slice)
@@ -427,6 +495,8 @@ def create_app(
         result = await asyncio.to_thread(verify, audit.path)
         return {"ok": result.ok, "records": result.records, "first_bad_seq": result.first_bad_seq, "reason": result.reason}
 
+    register_knowledge_routes(app, knowledge)
+
     if UI_DIR.is_dir():
         app.mount("/", StaticFiles(directory=UI_DIR, html=True), name="ui")
     else:
@@ -438,4 +508,6 @@ def create_app(
     app.state.registry = registry
     app.state.audit = audit
     app.state.approvals = approvals
+    app.state.knowledge = knowledge
+    app.state.db = db
     return app

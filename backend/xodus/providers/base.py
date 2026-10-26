@@ -120,6 +120,7 @@ class ModelInfo:
     reported_capabilities: list[str]
     declared: list[str]
     confirmed: list[str]
+    embedding_length: int | None = None  # native vector size of an embedding model
 
     def public(self) -> dict[str, Any]:
         return asdict(self)

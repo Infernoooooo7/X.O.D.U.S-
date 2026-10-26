@@ -143,7 +143,8 @@ async def test_unload_and_load_change_device_vram(real_settings):
         RESULTS["vram_mib"] = {"loaded": loaded // 2**20, "unloaded": unloaded // 2**20,
                                "freed": (loaded - unloaded) // 2**20}
         assert loaded - unloaded > 1500 * 2**20  # the model's weights and cache leave the GPU
-        assert await provider.running_models() == []
+        # the generator is gone; the embedding model may legitimately still be resident (OLLAMA_MAX_LOADED_MODELS=2)
+        assert real_settings.ollama.model not in {m["name"] for m in await provider.running_models()}
     finally:
         nvml.close()
         await provider.aclose()

@@ -37,11 +37,11 @@ from xodus.security.paths import resolve_existing
 from xodus.supervisor.supervisor import ManagedProcess, Supervisor
 
 
-class _Exited(Exception):
+class ProcessExited(Exception):
     pass
 
 
-class _Oversized(Exception):
+class LineTooLong(Exception):
     pass
 
 
@@ -57,19 +57,21 @@ def scrubbed_env(work_dir: Path, secrets: dict[str, str]) -> dict[str, str]:
     return env
 
 
-def _send(proc: ManagedProcess, message: dict[str, Any]) -> None:
+def send_line(proc: ManagedProcess, message: dict[str, Any]) -> None:
+    """One JSON message per line on the process's stdin (shared by the plugin and MCP clients)."""
     assert proc.popen.stdin is not None
     proc.popen.stdin.write(json.dumps(message).encode("utf-8") + b"\n")
     proc.popen.stdin.flush()
 
 
-def _read_line(proc: ManagedProcess, cap: int) -> bytes:
+def read_line(proc: ManagedProcess, cap: int) -> bytes:
+    """One line from the process's stdout, never more than `cap` bytes (blocking; run it in a thread)."""
     assert proc.popen.stdout is not None
     line = proc.popen.stdout.readline(cap + 1)
     if not line:
-        raise _Exited()
+        raise ProcessExited()
     if len(line) > cap:
-        raise _Oversized()
+        raise LineTooLong()
     return line
 
 
@@ -154,9 +156,9 @@ class SubprocessCapability:
                            "roots": {k: str(v) for k, v in ctx.roots.items()}},
             }
             try:
-                await asyncio.to_thread(_send, proc, request)
+                await asyncio.to_thread(send_line, proc, request)
                 raw = await asyncio.wait_for(
-                    asyncio.to_thread(_read_line, proc, self.manifest.max_output_bytes), timeout=self.manifest.timeout_s
+                    asyncio.to_thread(read_line, proc, self.manifest.max_output_bytes), timeout=self.manifest.timeout_s
                 )
             except TimeoutError:
                 self._fail()
@@ -166,14 +168,14 @@ class SubprocessCapability:
                 ctx.cancel.set()
                 await asyncio.shield(self._kill("cancelled"))
                 raise
-            except _Oversized:
+            except LineTooLong:
                 self._fail()
                 await self._kill("output too large")
                 raise OutputTooLarge(
                     f"{self.manifest.id} produced more than {self.manifest.max_output_bytes} bytes; the output was "
                     "discarded and the plugin stopped."
                 ) from None
-            except (_Exited, OSError):
+            except (ProcessExited, OSError):
                 try:  # EOF arrives slightly before the process (and a venv launcher parent) finishes exiting
                     code = await asyncio.to_thread(proc.popen.wait, 2)
                 except Exception:

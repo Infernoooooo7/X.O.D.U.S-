@@ -1,7 +1,8 @@
 """Structure-aware chunking (master prompt section 7: 400-600 tokens, small overlap).
 
 Blocks (paragraphs, headings, table rows, PDF paragraphs) are packed greedily into chunks. A chunk ends
-early at a heading change once it has reached the minimum size, so chunks follow the document's structure;
+early at a heading change once it holds at least half the minimum size, so chunks follow the document's
+structure and carry the right heading path (smaller fragments merge into the next section);
 a block larger than the maximum is split at a paragraph, sentence or word boundary. Consecutive chunks of
 the same section overlap by a few sentences' worth of text. The chunker is a pure function of the block
 stream: the same file always yields the same chunks, which is what makes ingestion resumable.
@@ -115,7 +116,9 @@ def chunk_blocks(blocks: Iterable[Block], params: ChunkParams) -> Iterator[Chunk
             if parts:
                 section_changed = piece.heading != (last.heading if last else piece.heading)
                 size_after = length + separator + len(piece.text)
-                if section_changed and real >= params.min_chars:
+                if section_changed and real >= params.min_chars // 2:
+                    # End the chunk at the heading so its heading path and its text agree; only a fragment smaller
+                    # than half the minimum (about 200 tokens) is merged into the next section instead.
                     flush, carry = True, False
                 elif size_after > params.target_chars and real >= params.min_chars:
                     flush, carry = True, True

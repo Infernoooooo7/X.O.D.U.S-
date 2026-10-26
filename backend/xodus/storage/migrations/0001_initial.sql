@@ -1,7 +1,9 @@
--- XODUS storage schema, migration 0001 (SQLite + FTS5 + sqlite-vec).
+﻿-- XODUS storage schema, migration 0001 (SQLite + FTS5 + sqlite-vec).
 -- Format: statements after "-- +up" are applied, statements after "-- +down" undo them.
 -- {{EMBEDDING_DIM}} is replaced by embedding.dimensions from the configuration; the same value
 -- is stored in meta so a later configuration that disagrees with the database is caught at startup.
+-- Ids are AUTOINCREMENT on purpose: SQLite would otherwise reuse the id of a deleted row, and a chunk id
+-- cited earlier ("[chunk:12]") could then point at different text. Ids are never reused.
 -- Timestamps are Unix seconds (REAL). Nothing in this file may be edited after it has been applied:
 -- the runner stores a checksum and refuses to start if it changes. Add a new migration instead.
 
@@ -13,7 +15,7 @@ CREATE TABLE meta (
 INSERT INTO meta(key, value) VALUES ('embedding_dim', '{{EMBEDDING_DIM}}');
 
 CREATE TABLE collections (
-  id          INTEGER PRIMARY KEY,
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL UNIQUE CHECK (length(name) BETWEEN 1 AND 64),
   description TEXT NOT NULL DEFAULT '',
   created_at  REAL NOT NULL
@@ -21,7 +23,7 @@ CREATE TABLE collections (
 
 -- One row per source file. Deleting the collection or the document cascades to everything below.
 CREATE TABLE documents (
-  id              INTEGER PRIMARY KEY,
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
   collection_id   INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   source_root     TEXT NOT NULL,
   source_path     TEXT NOT NULL,
@@ -44,7 +46,7 @@ CREATE INDEX documents_status ON documents(status);
 
 -- Chunks never change after they are written (a changed file is re-ingested from scratch).
 CREATE TABLE chunks (
-  id             INTEGER PRIMARY KEY,
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
   document_id    INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   ordinal        INTEGER NOT NULL,
   text           TEXT NOT NULL,
@@ -87,7 +89,7 @@ CREATE VIRTUAL TABLE chunk_vectors USING vec0(
 -- Durable ingestion queue: one source file per job. A job is leased by the worker that claims it
 -- (claimed_by = "pid:create_time") and returns to the queue if that worker dies.
 CREATE TABLE ingestion_jobs (
-  id               INTEGER PRIMARY KEY,
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
   collection_id    INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   root_id          TEXT NOT NULL,
   rel_path         TEXT NOT NULL,
@@ -107,10 +109,12 @@ CREATE TABLE ingestion_jobs (
   finished_at      REAL
 );
 CREATE INDEX ingestion_jobs_status ON ingestion_jobs(status, id);
+-- At most one active job per file, enforced by the database (two simultaneous requests cannot both queue it).
+CREATE UNIQUE INDEX ingestion_jobs_one_active ON ingestion_jobs(collection_id, root_id, rel_path) WHERE status IN ('queued', 'running');
 
 -- Long-term memory. Model-derived items start as 'proposed' and only a user decision makes them 'approved'.
 CREATE TABLE memory_items (
-  id             INTEGER PRIMARY KEY,
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
   kind           TEXT NOT NULL CHECK (kind IN ('note', 'fact', 'preference')),
   content        TEXT NOT NULL CHECK (length(content) BETWEEN 1 AND 10000),
   status         TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected')),

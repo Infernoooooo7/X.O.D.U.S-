@@ -136,6 +136,7 @@ class CapabilityRegistry:
         self._caps: dict[str, Capability] = {}
         self._sources: dict[str, str] = {}
         self.rejected: list[Rejection] = []
+        self.extensions: list[Any] = []  # out-of-process providers (plugins, MCP servers), each with .inventory()
 
     def register(self, cap: Capability, source: str) -> bool:
         cap_id = cap.manifest.id

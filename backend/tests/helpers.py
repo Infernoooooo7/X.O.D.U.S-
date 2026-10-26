@@ -227,8 +227,9 @@ def default_budget(**overrides: Any) -> ExecutionBudget:
 
 
 def make_deps(tmp_path: Path, sandbox: Path, provider: Any, extra: list[Any] | None = None,
-              grants: tuple[str, ...] = ("fs.read", "fs.write"), ttl_s: float = 5.0) -> ExecutorDeps:
-    policy = PermissionPolicy([Root("sandbox", sandbox.resolve(), frozenset(grants))])
+              grants: tuple[str, ...] = ("fs.read", "fs.write"), ttl_s: float = 5.0,
+              collections: dict[str, set[str]] | None = None) -> ExecutorDeps:
+    policy = PermissionPolicy([Root("sandbox", sandbox.resolve(), frozenset(grants))], collections=collections)
     registry = CapabilityRegistry(policy)
     registry.register(ListFiles("sandbox", sandbox), "builtin")
     for cap in extra or []:

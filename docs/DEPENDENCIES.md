@@ -18,6 +18,8 @@ whole: see "Runtime footprint" at the end.
 | nvidia-ml-py | 13.615.71 | Device-wide VRAM via NVML (per-process VRAM is unavailable under WDDM) | loads `nvml.dll` |
 | pywin32 | 312 | Windows Job Objects (`win32job`) and GPU performance counters (`win32pdh`) | in the backend process |
 | jsonschema | 4.26.0 | JSON Schema validation of capability arguments, outputs and plans (Draft 2020-12) | pulls in attrs, referencing, rpds-py, jsonschema-specifications |
+| sqlite-vec | 0.1.9 | Vector index (`vec0`, exact cosine search, collection filter) loaded as a SQLite extension; the PostgreSQL + pgvector alternative was not approved | a ~0.3 MB DLL loaded into each database connection |
+| pypdf | 6.21.2 | PDF text layer, read page by page (pure Python, no native code) | in the ingestion worker only (about 55 MiB peak USS for the worker with all parsers loaded) |
 
 ## Backend development and tests
 
@@ -25,6 +27,11 @@ whole: see "Runtime footprint" at the end.
 |---|---|---|
 | pytest / pytest-asyncio | 9.1.1 / 1.4.1 | Test runner; async tests |
 | playwright (Python) | 1.64.1 | Browser tests driving the **installed** Google Chrome (`channel="chrome"`); no browser download |
+| python-docx (+ lxml) | 1.2.0 (6.1.3) | Creates real DOCX fixtures for the parser tests. **Not used at runtime**: the DOCX parser is XODUS's own streaming reader (zipfile + ElementTree), which keeps memory bounded and lets archive and XML limits be checked first |
+
+Considered and not used: SQLAlchemy and Alembic (the SQLite adapter uses plain parameterised SQL and a small
+versioned migration runner; they arrive with the PostgreSQL adapter if that is approved), `python-docx` at runtime
+(loads the whole document), `defusedxml` (entity declarations are refused before parsing instead).
 
 ## Frontend build (Node 22; never runs at runtime: the UI is a static export served by FastAPI)
 
@@ -43,6 +50,7 @@ Not added yet (planned for later gates, per the stack in section 10): Tailwind C
 |---|---|---|---|
 | Ollama (portable zip) | 0.40.11 | github.com/ollama/ollama releases, SHA-256 verified | 1.48 GB download, 2.08 GB extracted |
 | qwen3:4b-instruct-2507-q4_K_M | digest 0edcdef34593 | ollama.com library | 2.5 GB |
+| qwen3-embedding:0.6b | digest ac6da0dfba84 (checked after the pull) | ollama.com library (approved 27 Oct 2026) | 639 MB download; 1,024-dimension vectors; native context 32,768 |
 
 ## Runtime footprint (measured, smoke benchmark of 27 Oct 2026, Gate C code)
 

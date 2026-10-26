@@ -97,6 +97,45 @@ class OllamaSettings(_Section):
 class ChatSettings(_Section):
     system_prompt: str = ""
     max_message_chars: int = Field(8000, ge=1, le=100_000)
+    max_history_tokens: int = Field(3000, ge=0, le=16_384)  # earlier turns of a conversation; oldest dropped first
+
+
+class ModelProfileSettings(_Section):
+    """A switchable generation profile. The 'default' profile is not listed: it is the [ollama] section itself."""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    label: str = Field("", max_length=80)
+    model: str = Field(min_length=1, max_length=200)
+    expected_digest_prefix: str | None = None
+    capabilities: list[ModelCapability] = ["completion", "structured", "tools"]
+    num_ctx: int = Field(8192, ge=512, le=16384)
+    enabled: bool = True  # false = listed for information, never switched to (e.g. does not fit in VRAM)
+    note: str = Field("", max_length=300)
+
+
+class ModelSettings(_Section):
+    profiles: list[ModelProfileSettings] = []
+    unload_wait_s: float = Field(15.0, gt=0, le=120)  # how long to wait for Ollama to drop the old model
+    warmup: bool = True  # one short generation after loading, so the first real request does not pay for it
+
+
+class ThresholdSettings(_Section):
+    """Master prompt 3.7 (TARGET values). GB means 10^9 bytes. Evaluated and shown in the resource view; automatic
+    throttling on these levels is not implemented yet (Gate F). VRAM is device-wide (NVML), so it includes other
+    applications' use of the GPU: whether it should be measured against an idle baseline is an open decision."""
+
+    warn_uss_gb: float = Field(3.6, gt=0)
+    stop_uss_gb: float = Field(5.5, gt=0)
+    warn_vram_gb: float = Field(4.2, gt=0)
+    stop_vram_gb: float = Field(4.8, gt=0)
+    stop_available_gb: float = Field(1.5, ge=0)
+    recover_after_s: float = Field(30.0, gt=0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> ThresholdSettings:
+        if self.warn_uss_gb >= self.stop_uss_gb or self.warn_vram_gb >= self.stop_vram_gb:
+            raise ValueError("each warn level must be below its stop level")
+        return self
 
 
 class EnvelopeSettings(_Section):
@@ -152,7 +191,7 @@ class StorageSettings(_Section):
 
 class EmbeddingSettings(_Section):
     dimensions: int = Field(1024, ge=32, le=4096)  # must equal the vector column; checked at startup
-    num_gpu: int | None = 0  # 0 = embedder on CPU (provisional; GPU vs CPU is a Gate G experiment); None = Ollama decides
+    num_gpu: int = Field(0, ge=-1)  # 0 = embedder on the CPU (provisional; CPU vs GPU is a Gate G experiment); -1 = Ollama decides
     query_template: str = "Instruct: Given a question, retrieve the passages that answer it.\nQuery: {text}"
     document_template: str = "{text}"
     batch_size: int = Field(16, ge=1, le=16)  # envelope: embedding batches <= 16 chunks
@@ -285,11 +324,25 @@ class Settings(BaseSettings):
     approvals: ApprovalSettings = ApprovalSettings()
     supervisor: SupervisorSettings = SupervisorSettings()
     plugins: PluginSettings = PluginSettings()
+    models: ModelSettings = ModelSettings()
+    thresholds: ThresholdSettings = ThresholdSettings()
 
     @field_validator("log_dir", "data_dir")
     @classmethod
     def _resolve_dir(cls, v: Path) -> Path:
         return _repo_path(v)
+
+    @model_validator(mode="after")
+    def _profiles(self) -> Settings:
+        ids = [p.id for p in self.models.profiles]
+        if "default" in ids:
+            raise ValueError("models.profiles: 'default' is reserved (the default profile is the [ollama] section)")
+        if len(ids) != len(set(ids)):
+            raise ValueError("models.profiles: profile ids must be unique")
+        for p in self.models.profiles:
+            if p.num_ctx not in self.ollama.allowed_num_ctx:
+                raise ValueError(f"models.profiles.{p.id}: num_ctx {p.num_ctx} is not in ollama.allowed_num_ctx")
+        return self
 
     @classmethod
     def settings_customise_sources(

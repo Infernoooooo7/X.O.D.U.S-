@@ -25,7 +25,7 @@ from xodus.ingestion.worker import SETTINGS_ENV
 from xodus.obs import log_event
 from xodus.security.audit import AuditLog
 from xodus.security.paths import PathViolation, WrongKind, is_link, resolve_existing
-from xodus.storage.knowledge import KnowledgeStore
+from xodus.storage.knowledge import Conflict, KnowledgeStore
 from xodus.supervisor.supervisor import ManagedProcess, Supervisor
 
 MAX_DEPTH = 8
@@ -43,6 +43,7 @@ class IngestRequestError(Exception):
 class Enqueued:
     jobs: list[dict[str, Any]]
     rejected: list[dict[str, str]]
+    paused: bool = False  # queued, but ingestion is paused: nothing runs until it is resumed
 
 
 class IngestionService:
@@ -83,23 +84,22 @@ class IngestionService:
             raise IngestRequestError("too_many_files", f"{len(candidates)} files found; one request may queue at most "
                                                        f"{k.max_files_per_request}. Queue a smaller folder.", 413)
         jobs: list[dict[str, Any]] = []
-        queued = {(j["root_id"], j["rel_path"]) for j in self.store.list_jobs("queued", 200)} | \
-                 {(j["root_id"], j["rel_path"]) for j in self.store.list_jobs("running", 200)}
         for path in candidates:
             rel = path.relative_to(root.path).as_posix()
             reason = self._precheck(path)
             if reason:
                 rejected.append({"path": rel, "code": reason[0], "reason": reason[1]})
-            elif (root_id, rel) in queued:
-                rejected.append({"path": rel, "code": "already_queued", "reason": "This file is already queued or running."})
-            else:
+                continue
+            try:  # the database allows one active job per file, so concurrent requests cannot both queue it
                 jobs.append(self.store.enqueue_job(coll["id"], root_id, rel))
+            except Conflict:
+                rejected.append({"path": rel, "code": "already_queued", "reason": "This file is already queued or running."})
         self.audit.append("ingest_requested", collection=collection, root=root_id, path=rel_path, recursive=recursive,
                           queued=len(jobs), rejected=len(rejected))
         if jobs:
             self.degraded, self._starts = None, deque()  # a new request retries a stopped worker
             self.ensure_worker("ingest request")
-        return Enqueued(jobs, rejected)
+        return Enqueued(jobs, rejected, self.store.ingestion_paused())
 
     def _precheck(self, path: Path) -> tuple[str, str] | None:
         ext = path.suffix.lower()
@@ -150,10 +150,33 @@ class IngestionService:
     def worker_alive(self) -> bool:
         return self._worker is not None and self.supervisor.is_alive(self._worker)
 
-    def ensure_worker(self, reason: str) -> bool:
-        """Start the worker if none is running. Returns True if one was started."""
-        cfg = self.settings.ingestion
+    def pause(self, reason: str = "user") -> dict[str, Any]:
+        """Stop background ingestion: the worker is stopped and its job goes back to the queue (resumes from its
+        checkpoint later). Queued jobs stay queued. Survives a backend restart until resumed."""
         with self._lock:
+            self.store.set_ingestion_paused(True)
+            worker, self._worker = self._worker, None
+        if worker is not None:
+            self.supervisor.stop(worker, "paused")
+        requeued = self.store.requeue_running()
+        self.audit.append("ingestion_paused", reason=reason, requeued_jobs=requeued)
+        log_event("ingestion_paused", reason=reason, requeued_jobs=requeued)
+        return {"paused": True, "requeued_jobs": requeued, "pending_jobs": self.store.pending_jobs()}
+
+    def resume(self, reason: str = "user") -> dict[str, Any]:
+        self.store.set_ingestion_paused(False)
+        self.degraded, self._starts = None, deque()
+        started = self.ensure_worker("resumed") if self.store.pending_jobs() else False
+        self.audit.append("ingestion_resumed", reason=reason, worker_started=started)
+        log_event("ingestion_resumed", reason=reason, worker_started=started)
+        return {"paused": False, "worker_started": started, "pending_jobs": self.store.pending_jobs()}
+
+    def ensure_worker(self, reason: str) -> bool:
+        """Start the worker if none is running (and ingestion is not paused). Returns True if one was started."""
+        cfg = self.settings.ingestion
+        with self._lock:  # pause() sets the flag under this lock, so a worker cannot start after a pause
+            if self.store.ingestion_paused():
+                return False
             if self._worker is not None:
                 if self.supervisor.is_alive(self._worker):
                     self.supervisor.touch(self._worker)
@@ -182,7 +205,7 @@ class IngestionService:
 
     def tick(self) -> None:
         """One monitoring pass: keep a worker running while jobs are pending, kill one whose heartbeat stalled."""
-        if self.store.pending_jobs() == 0:
+        if self.store.pending_jobs() == 0 or self.store.ingestion_paused():
             return
         if self.worker_alive():
             assert self._worker is not None
@@ -205,6 +228,7 @@ class IngestionService:
                        "starts_total": self.worker_starts_total, "degraded": self.degraded,
                        "idle_timeout_s": self.settings.ingestion.worker_idle_timeout_s},
             "pending_jobs": self.store.pending_jobs(),
+            "paused": self.store.ingestion_paused(),
             "embedding": {"model": self.settings.ollama.embed_model, "dimensions": self.settings.embedding.dimensions,
                           "num_gpu": self.settings.embedding.num_gpu, "batch_size": self.settings.embedding.batch_size},
         }

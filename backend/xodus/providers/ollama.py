@@ -67,8 +67,8 @@ def embed_payload(ollama: OllamaSettings, texts: list[str], dimensions: int | No
                                "keep_alive": ollama.keep_alive}
     if dimensions is not None:
         payload["dimensions"] = dimensions
-    if num_gpu is not None:
-        payload["options"] = {"num_gpu": num_gpu}  # 0 keeps the embedder on the CPU
+    if num_gpu is not None and num_gpu >= 0:
+        payload["options"] = {"num_gpu": num_gpu}  # 0 keeps the embedder on the CPU; a negative value leaves it to Ollama
     return payload
 
 
@@ -238,10 +238,14 @@ class OllamaProvider:
 
     async def model_info(self, model: str | None = None) -> ModelInfo:
         name = model or self._s.model
-        show = await self._post("/api/show", {"model": name}, self._s.connect_timeout_s + 10)
+        try:
+            show = await self._post("/api/show", {"model": name}, self._s.connect_timeout_s + 10)
+        except ModelNotAvailable as exc:  # name the model that was asked about, not the configured generator
+            raise ModelNotAvailable(f"Model {name!r} is not installed in Ollama. Run: ollama pull {name}", detail=exc.detail) from exc
         details = show.get("details", {}) or {}
         info = show.get("model_info", {}) or {}
         context = next((v for k, v in info.items() if k.endswith(".context_length")), None)
+        embedding_length = next((v for k, v in info.items() if k.endswith(".embedding_length")), None)
         digest = None
         for m in await self.list_models():
             if name in (m.get("name"), m.get("model")):
@@ -259,6 +263,7 @@ class OllamaProvider:
             reported_capabilities=reported,
             declared=sorted(declared),
             confirmed=sorted(declared & mapped & MODEL_CAPABILITIES),
+            embedding_length=int(embedding_length) if embedding_length else None,
         )
 
     async def probe(self) -> ModelInfo:

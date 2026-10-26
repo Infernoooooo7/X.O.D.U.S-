@@ -155,6 +155,13 @@ class CapabilityManifest(BaseModel):
         }
 
 
+def check_secret_names(value: tuple[str, ...]) -> tuple[str, ...]:
+    for name in value:
+        if not isinstance(name, str) or not re.match(r"^[A-Z][A-Z0-9_]{0,63}$", name):
+            raise ValueError(f"secret name {name!r} must be UPPER_SNAKE_CASE")
+    return value
+
+
 class PluginEntry(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -182,15 +189,61 @@ class PluginManifest(CapabilityManifest):
     @field_validator("secrets")
     @classmethod
     def _secrets(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        for name in value:
-            if not isinstance(name, str) or not re.match(r"^[A-Z][A-Z0-9_]{0,63}$", name):
-                raise ValueError(f"secret name {name!r} must be UPPER_SNAKE_CASE")
-        return value
+        return check_secret_names(value)
 
     @model_validator(mode="after")
     def _out_of_process(self) -> PluginManifest:
         if self.execution_mode == "in_process":
             raise ValueError("plugins run out of process: execution_mode must be 'subprocess'")
         if self.execution_mode == "mcp":
-            raise ValueError("MCP servers are not supported yet (planned for Gate E)")
+            raise ValueError("MCP tools are declared in an MCP server manifest (\"kind\": \"mcp_server\"), not as a plugin")
+        return self
+
+
+MCP_TOOL_NAME = r"^[A-Za-z0-9_.-]{1,64}$"
+
+
+class McpToolManifest(CapabilityManifest):
+    """One tool of an MCP server, reviewed and pinned by the user. XODUS shows the model this manifest's description
+    and validates arguments against this input_schema, never against what the server advertises at run time."""
+
+    mcp_tool: str = Field(pattern=MCP_TOOL_NAME)
+
+    @model_validator(mode="after")
+    def _mcp(self) -> McpToolManifest:
+        if self.execution_mode != "mcp":
+            raise ValueError("tools of an MCP server must have execution_mode 'mcp'")
+        if any(p.startswith("fs.") for p in self.permissions):
+            raise ValueError("MCP tools cannot declare file-system permissions yet (no way to confine their paths)")
+        return self
+
+
+class McpServerManifest(BaseModel):
+    """manifest.json of an MCP server in plugins/<name>/: one stdio process providing several capabilities."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["mcp_server"]
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=1000)
+    version: str = Field(pattern=r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
+    entry: PluginEntry
+    secrets: tuple[str, ...] = Field(default=(), max_length=8)
+    init_timeout_s: float = Field(10.0, gt=0, le=60)
+    tools: tuple[McpToolManifest, ...] = Field(min_length=1, max_length=32)
+
+    @field_validator("secrets")
+    @classmethod
+    def _secrets(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return check_secret_names(value)
+
+    @model_validator(mode="after")
+    def _unique(self) -> McpServerManifest:
+        ids = [t.id for t in self.tools]
+        names = [t.mcp_tool for t in self.tools]
+        if len(ids) != len(set(ids)):
+            raise ValueError("tool capability ids must be unique")
+        if len(names) != len(set(names)):
+            raise ValueError("each MCP tool may be declared once")
         return self

@@ -16,7 +16,7 @@ model = "qwen3:4b-instruct-2507-q4_K_M"
 expected_digest_prefix = "0edcdef34593"   # ollama.com library digest, checked against /api/tags
 # Declared model capabilities; each is used only after /api/show confirms it at startup.
 capabilities = ["completion", "structured", "tools"]
-embed_model = "qwen3-embedding:0.6b"      # not installed yet (Gate D)
+embed_model = "qwen3-embedding:0.6b"      # installed in Gate D (digest ac6da0dfba84)
 num_ctx = 8192
 allowed_num_ctx = [4096, 8192, 16384]
 max_output_tokens = 1024
@@ -32,6 +32,54 @@ top_k = 20
 [chat]
 system_prompt = "You are XODUS, a local assistant running entirely on this computer. Answer concisely. If you do not know something, say so."
 max_message_chars = 8000
+max_history_tokens = 3000   # earlier turns of a conversation sent with each chat message; the oldest are dropped first
+
+# Model profiles (master prompt section 6). The "default" profile is the [ollama] section above. Every profile is
+# PROVISIONAL and unmeasured on this machine until a switch to it has been measured. XODUS never downloads a model:
+# a profile whose model is not installed is listed but cannot be switched to.
+[models]
+unload_wait_s = 15
+warmup = true
+
+[[models.profiles]]
+id = "default-4k"
+label = "Default model, 4K context"
+model = "qwen3:4b-instruct-2507-q4_K_M"
+expected_digest_prefix = "0edcdef34593"
+num_ctx = 4096
+note = "Same weights as default with a smaller KV cache; for memory pressure."
+
+[[models.profiles]]
+id = "light"
+label = "Light"
+model = "qwen3:1.7b-q4_K_M"
+num_ctx = 8192
+note = "Fallback under memory pressure (brief section 6). Not downloaded."
+
+[[models.profiles]]
+id = "challenger"
+label = "Challenger"
+model = "qwen3.5:4b"
+num_ctx = 8192
+note = "Thinks by default; heavier weights incl. a vision encoder (brief section 6). Not downloaded."
+
+[[models.profiles]]
+id = "experimental-large"
+label = "Experimental large"
+model = "qwen3.5:9b"
+num_ctx = 8192
+enabled = false
+note = "Cannot fit in 6 GB VRAM; only for a labelled experiment that reports the budget breach."
+
+# Resource thresholds (master prompt 3.7, TARGET values; GB = 10^9 bytes). Shown in the resource view.
+# Automatic throttling on these levels is Gate F. VRAM is device-wide and includes other apps' GPU use.
+[thresholds]
+warn_uss_gb = 3.6
+stop_uss_gb = 5.5
+warn_vram_gb = 4.2
+stop_vram_gb = 4.8
+stop_available_gb = 1.5
+recover_after_s = 30
 
 [envelope]   # provisional supported workload envelope (master prompt 3.5)
 max_running = 1
@@ -67,7 +115,7 @@ pool_size = 4
 
 [embedding]          # the model is ollama.embed_model; vectors must match the database column
 dimensions = 1024
-num_gpu = 0          # 0 = CPU (provisional; CPU vs GPU is a Gate G experiment)
+num_gpu = 0          # 0 = CPU (provisional; CPU vs GPU is a Gate G experiment). -1 = let Ollama decide (GPU if it fits)
 batch_size = 16      # envelope: embedding batches <= 16 chunks
 timeout_s = 120      # a batch of 16 chunks took ~22 s on the CPU when measured (Gate D), longer under load
 query_template = "Instruct: Given a question, retrieve the passages that answer it.\nQuery: {text}"

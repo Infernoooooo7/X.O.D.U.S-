@@ -95,6 +95,45 @@ class AuditLog:
             return record
 
 
+def read_recent(path: Path, limit: int = 50, before_seq: int | None = None, event_prefix: str | None = None,
+                max_scan_bytes: int = 32 * 2**20) -> list[dict[str, Any]]:
+    """Newest records first, for display. Reads the file backwards in blocks, so a long log is not loaded whole.
+    Display only: it does not check the chain (that is verify()). Lines that are not JSON objects are skipped."""
+    if not path.exists():
+        return []
+    limit = max(1, min(int(limit), 500))
+    out: list[dict[str, Any]] = []
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        pos = fh.tell()
+        scanned, tail = 0, b""
+        while pos > 0 and len(out) < limit and scanned < max_scan_bytes:
+            step = min(65536, pos)
+            pos -= step
+            fh.seek(pos)
+            block = fh.read(step) + tail
+            scanned += step
+            lines = block.split(b"\n")
+            tail = lines.pop(0) if pos > 0 else b""  # possibly a cut line: completed by the next (earlier) block
+            for raw in reversed(lines):
+                if not raw.strip():
+                    continue
+                try:
+                    record = json.loads(raw)
+                except ValueError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                if before_seq is not None and int(record.get("seq", 0)) >= before_seq:
+                    continue
+                if event_prefix and not str(record.get("event", "")).startswith(event_prefix):
+                    continue
+                out.append(record)
+                if len(out) >= limit:
+                    break
+    return out
+
+
 def verify(path: Path) -> AuditVerification:
     """Check sequence numbers, the previous-hash chain and each record's own hash."""
     if not path.exists():

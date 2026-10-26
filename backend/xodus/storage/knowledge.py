@@ -54,8 +54,8 @@ def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return None if row is None else dict(row)
 
 
-def _page(limit: int, offset: int) -> tuple[int, int]:
-    return max(1, min(int(limit), MAX_PAGE)), max(0, int(offset))
+def _page(limit: int, offset: int, max_limit: int = MAX_PAGE) -> tuple[int, int]:
+    return max(1, min(int(limit), max_limit)), max(0, int(offset))
 
 
 def _marks(n: int) -> str:
@@ -99,12 +99,16 @@ class KnowledgeStore:
             row = conn.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
             return self._collection(conn, row[0]) if row else None
 
-    def collection_ids(self, names: Iterable[str]) -> list[int]:
+    def collection_id_map(self, names: Iterable[str]) -> dict[str, int]:
         names = list(names)
         if not names:
-            return []
+            return {}
         with self.db.connection() as conn:
-            return [r[0] for r in conn.execute(f"SELECT id FROM collections WHERE name IN ({_marks(len(names))})", names)]
+            return {r[1]: r[0] for r in conn.execute(
+                f"SELECT id, name FROM collections WHERE name IN ({_marks(len(names))})", names)}
+
+    def collection_ids(self, names: Iterable[str]) -> list[int]:
+        return list(self.collection_id_map(names).values())
 
     def list_collections(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         limit, offset = _page(limit, offset)
@@ -374,10 +378,15 @@ class KnowledgeStore:
     # ------------------------------------------------------------------ ingestion jobs
 
     def enqueue_job(self, collection_id: int, root_id: str, rel_path: str, created_by: str = "user") -> dict[str, Any]:
-        with self.db.transaction() as conn:
-            cur = conn.execute("INSERT INTO ingestion_jobs(collection_id, root_id, rel_path, status, created_by, created_at)"
-                               " VALUES (?,?,?, 'queued', ?, ?)", (collection_id, root_id, rel_path, created_by, time.time()))
-            return dict(conn.execute("SELECT * FROM ingestion_jobs WHERE id = ?", (cur.lastrowid,)).fetchone())
+        try:
+            with self.db.transaction() as conn:
+                cur = conn.execute("INSERT INTO ingestion_jobs(collection_id, root_id, rel_path, status, created_by, created_at)"
+                                   " VALUES (?,?,?, 'queued', ?, ?)", (collection_id, root_id, rel_path, created_by, time.time()))
+                return dict(conn.execute("SELECT * FROM ingestion_jobs WHERE id = ?", (cur.lastrowid,)).fetchone())
+        except sqlite3.IntegrityError as exc:
+            if "UNIQUE" in str(exc):
+                raise Conflict("This file is already queued or running.") from exc
+            raise StorageError(f"Could not queue the job: {exc}") from exc
 
     def get_job(self, job_id: int) -> dict[str, Any]:
         with self.db.connection() as conn:
@@ -394,6 +403,16 @@ class KnowledgeStore:
                    + (" WHERE j.status = ?" if status else "") + " ORDER BY j.id DESC LIMIT ? OFFSET ?")
             args = (status, limit, offset) if status else (limit, offset)
             return [dict(r) for r in conn.execute(sql, args)]
+
+    def has_active_job(self, collection_id: int, root_id: str, rel_path: str) -> bool:
+        with self.db.connection() as conn:
+            return conn.execute("SELECT 1 FROM ingestion_jobs WHERE collection_id = ? AND root_id = ? AND rel_path = ?"
+                                " AND status IN ('queued','running') LIMIT 1", (collection_id, root_id, rel_path)).fetchone() is not None
+
+    def active_jobs_in_collection(self, collection_id: int) -> int:
+        with self.db.connection() as conn:
+            return int(conn.execute("SELECT count(*) FROM ingestion_jobs WHERE collection_id = ?"
+                                    " AND status IN ('queued','running')", (collection_id,)).fetchone()[0])
 
     def pending_jobs(self) -> int:
         with self.db.connection() as conn:
@@ -468,6 +487,25 @@ class KnowledgeStore:
                     conn.execute("UPDATE ingestion_jobs SET status='queued', claimed_by=NULL WHERE id=?", (row["id"],))
                     result["requeued"].append(row["id"])
         return result
+
+    def ingestion_paused(self) -> bool:
+        with self.db.connection() as conn:
+            row = conn.execute("SELECT value FROM meta WHERE key = 'ingestion_paused'").fetchone()
+        return row is not None and row[0] == "1"
+
+    def set_ingestion_paused(self, paused: bool) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("INSERT INTO meta(key, value) VALUES ('ingestion_paused', ?)"
+                         " ON CONFLICT(key) DO UPDATE SET value = excluded.value", ("1" if paused else "0",))
+
+    def requeue_running(self) -> list[int]:
+        """Put running jobs back in the queue after the user paused ingestion. The attempt is not counted: the worker was
+        stopped on purpose, so a pause can never push a file over the attempt limit. Progress resumes from the checkpoint."""
+        with self.db.transaction() as conn:
+            ids = [r[0] for r in conn.execute("SELECT id FROM ingestion_jobs WHERE status = 'running'")]
+            conn.execute("UPDATE ingestion_jobs SET status='queued', claimed_by=NULL, attempts=MAX(attempts - 1, 0)"
+                         " WHERE status = 'running'")
+        return ids
 
     # ------------------------------------------------------------------ statistics
 

@@ -139,7 +139,7 @@ def inspect_file(path: Path, limits: Limits) -> SourceInfo:
 
 
 def _iter_lines(path: Path, encoding: str) -> Iterator[tuple[str, bool]]:
-    """Decoded lines as (text, ended_with_newline). Lines longer than MAX_LINE_CHARS come back in pieces."""
+    """Decoded lines as (text, ended_with_newline). Lines longer than MAX_BLOCK_CHARS come back in pieces."""
     errors = "strict" if encoding in ("utf-8", "utf-8-sig") else "replace"  # utf-8 was validated by inspect_file()
     with open(path, encoding=encoding, errors=errors, newline="") as fh:
         pending = ""
@@ -153,9 +153,9 @@ def _iter_lines(path: Path, encoding: str) -> Iterator[tuple[str, bool]]:
             *lines, pending = pending.split("\n")
             for line in lines:
                 yield line, True
-            while len(pending) > MAX_LINE_CHARS:
-                yield pending[:MAX_LINE_CHARS], False
-                pending = pending[MAX_LINE_CHARS:]
+            while len(pending) > MAX_BLOCK_CHARS:  # a line longer than a block comes back in block-sized pieces
+                yield pending[:MAX_BLOCK_CHARS], False
+                pending = pending[MAX_BLOCK_CHARS:]
         if pending:
             yield pending, False
 

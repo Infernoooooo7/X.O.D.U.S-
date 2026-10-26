@@ -85,3 +85,73 @@ def real_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     monkeypatch.setenv("XODUS_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("XODUS_LOG_DIR", str(tmp_path / "logs"))
     return load_settings([CONFIG_DIR / "default.toml"])
+
+
+# ---------------------------------------------------------------------------------------------- knowledge fixtures
+
+KB_TOML = """
+[embedding]
+dimensions = {dim}
+num_gpu = 0
+batch_size = 4
+query_template = "{{text}}"
+document_template = "{{text}}"
+[knowledge]
+min_term_match_ratio = 0.5
+[ingestion]
+worker_idle_timeout_s = 60
+poll_interval_s = 0.05
+embed_retries = 1
+embed_retry_backoff_s = 0.05
+watchdog_s = 30
+[[permissions.roots]]
+id = "docs"
+path = "{docs}"
+grants = ["fs.read"]
+"""
+
+
+@pytest.fixture
+def docs_root(tmp_path: Path) -> Path:
+    root = tmp_path / "docs"
+    root.mkdir()
+    return root
+
+
+@pytest.fixture
+def kb_toml(docs_root: Path) -> str:
+    from tests.kb_helpers import DIM
+
+    return KB_TOML.format(dim=DIM, docs=docs_root.as_posix())
+
+
+@pytest.fixture
+def kb_settings(make_settings, kb_toml):
+    def _make(extra: str = "", base_url: str = "http://127.0.0.1:11434") -> Settings:
+        return make_settings(extra=kb_toml + extra, base_url=base_url)
+
+    return _make
+
+
+@pytest.fixture
+def fake_ollama():
+    from tests.kb_helpers import FakeOllama
+
+    server = FakeOllama()
+    yield server
+    server.stop()
+
+
+@pytest.fixture
+def kb_store(kb_settings):
+    """An opened, migrated store over a temporary database (in-process, no worker)."""
+    from xodus.storage.knowledge import KnowledgeStore
+    from xodus.storage.sqlite import Database
+
+    settings = kb_settings()
+    db = Database(settings.data_dir / settings.storage.filename, embedding_dim=settings.embedding.dimensions)
+    db.open()
+    store = KnowledgeStore(db, max_chunks=settings.knowledge.max_chunks)
+    store.settings = settings  # convenience for tests
+    yield store
+    db.close()
