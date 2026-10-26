@@ -1,0 +1,11 @@
+{
+  "name": "xodus",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "postinstall": "npm --prefix frontend install"
+  }
+}

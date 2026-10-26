@@ -10,6 +10,7 @@ frontend/.next/
 frontend/out/
 frontend/next-env.d.ts
 frontend/tsconfig.tsbuildinfo
+/package-lock.json
 
 # Local config and secrets
 config/local.toml
