@@ -1,0 +1,25 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+
+# Local config and secrets
+config/local.toml
+.env
+
+# Runtime output
+logs/
+experiments/results/
+
+# Editor / Agent
+.claude/
+.vscode/
+.idea/

@@ -1,0 +1,2 @@
+This folder is the root for the read-only fs.list_files capability.
+XODUS can list what is here; it cannot read, change or leave this folder through that capability.

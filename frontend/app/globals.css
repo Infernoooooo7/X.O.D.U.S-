@@ -1,0 +1,38 @@
+/* Minimal Gate B styling: warm neutral base, one accent. Full design system arrives in Gate E. */
+:root {
+  --bg: #e6ded4;
+  --surface: #f7f3ee;
+  --ink: #1f1b16;
+  --muted: #5c5349;
+  --accent: #9a3412;
+  --error-bg: #fbe9e7;
+  --error-ink: #7a1a12;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, "Segoe UI", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 16px; }
+h1 { margin: 0; font-size: 2rem; letter-spacing: 0.08em; }
+h2 { margin: 0 0 12px; font-size: 1.15rem; }
+.eyebrow, .meta, .strip, .tag { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+.eyebrow { margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+.strip { margin: 8px 0 0; padding: 6px 10px; border: 1px dashed var(--muted); border-radius: 6px; }
+.strip-bad { color: var(--error-ink); border-color: var(--error-ink); background: var(--error-bg); }
+.card { background: var(--surface); border-radius: 10px; padding: 16px; border: 1px solid #d8cfc3; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+textarea, input { width: 100%; font: inherit; padding: 8px; border: 1px solid #b9ad9f; border-radius: 6px; background: #fff; color: var(--ink); }
+.row input { flex: 1 1 160px; width: auto; }
+button { font: inherit; padding: 6px 16px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+button.secondary { background: transparent; color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.reply { margin-top: 12px; white-space: pre-wrap; padding: 12px; background: #fff; border-radius: 6px; border: 1px solid #e3dad0; }
+.error { margin-top: 12px; padding: 10px 12px; background: var(--error-bg); color: var(--error-ink); border-left: 4px solid var(--error-ink); border-radius: 6px; }
+.error p { margin: 4px 0 0; }
+.error .meta { color: var(--error-ink); }
+.ticket { border-top: 1px dashed #b9ad9f; padding-top: 8px; margin-top: 12px; }
+.files { margin: 8px 0 0; padding: 0; list-style: none; }
+.files li { padding: 4px 0; border-bottom: 1px solid #ece4da; }
+.tag { display: inline-block; min-width: 3.5em; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

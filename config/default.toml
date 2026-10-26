@@ -1,0 +1,37 @@
+# XODUS default configuration (checked in).
+# Override locally in config/local.toml (gitignored) or with XODUS_<SECTION>__<KEY> env vars.
+# Relative paths are resolved against the repository root.
+
+log_dir = "logs"
+
+[server]
+host = "127.0.0.1"   # loopback only; anything else is rejected at startup
+port = 8765
+
+[ollama]
+base_url = "http://127.0.0.1:11434"
+model = "qwen3:4b-instruct-2507-q4_K_M"
+expected_digest_prefix = "0edcdef34593"   # ollama.com library digest, checked against /api/tags
+num_ctx = 8192
+allowed_num_ctx = [4096, 8192, 16384]
+max_output_tokens = 1024
+keep_alive = "10m"
+connect_timeout_s = 3.0
+request_timeout_s = 120.0
+
+[ollama.sampling]   # Qwen3-Instruct-2507 model-card recommendations
+temperature = 0.7
+top_p = 0.8
+top_k = 20
+
+[chat]
+system_prompt = "You are XODUS, a local assistant running entirely on this computer. Answer concisely. If you do not know something, say so."
+max_message_chars = 8000
+
+[envelope]   # provisional supported workload envelope (master prompt 3.5)
+max_running = 1
+max_queued = 4
+
+[capabilities]
+list_files_root = "examples/sandbox"
+list_files_max_entries = 500
