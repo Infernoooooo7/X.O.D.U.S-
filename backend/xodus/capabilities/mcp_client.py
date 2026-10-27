@@ -38,10 +38,11 @@ from xodus.capabilities.registry import (
     OutputTooLarge,
     PluginCrashed,
     PluginError,
+    ProcessLimit,
 )
 from xodus.obs import log_event
 from xodus.security.paths import resolve_existing
-from xodus.supervisor.supervisor import ManagedProcess, Supervisor
+from xodus.supervisor.supervisor import ManagedProcess, Supervisor, SupervisorLimit
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 _IGNORED_SCHEMA_KEYS = {"$schema", "additionalProperties"}  # XODUS's pinned schema may be stricter than the server's
@@ -251,6 +252,11 @@ class McpServer:
             await self._kill("exited")
         try:
             return await self._start()
+        except SupervisorLimit as exc:  # nothing was started; not a failure of this server
+            raise ProcessLimit(str(exc)) from None
+        except asyncio.CancelledError:  # the caller's timeout or a cancelled task: never leave a half-started server
+            await asyncio.shield(self._kill("cancelled while starting"))
+            raise
         except _Deadline:
             self._fail()
             await self._kill("initialize timeout")

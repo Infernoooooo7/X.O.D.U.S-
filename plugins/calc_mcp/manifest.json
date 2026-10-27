@@ -1,0 +1,71 @@
+{
+  "kind": "mcp_server",
+  "id": "calc",
+  "name": "Calculator (MCP)",
+  "description": "Sample first-party MCP server: safe arithmetic and descriptive statistics. Standard library only; no files, no network.",
+  "version": "1.0.0",
+  "entry": {"command": ["python", "server.py"]},
+  "init_timeout_s": 10,
+  "tools": [
+    {
+      "id": "calc.evaluate",
+      "mcp_tool": "evaluate",
+      "name": "Calculate",
+      "description": "Evaluate an arithmetic expression exactly, e.g. (17.5 * 4) / 3 + sqrt(2). Supports + - * / // % ** (or ^), parentheses, pi, e, sqrt, log, log10, exp, sin, cos, tan, abs, round, min and max. Use it instead of doing arithmetic in your head.",
+      "version": "1.0.0",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expression"],
+        "properties": {
+          "expression": {"type": "string", "minLength": 1, "maxLength": 200,
+                         "description": "For example: (17.5 * 4) / 3 + sqrt(2)"}
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["expression", "value"],
+        "properties": {"expression": {"type": "string"}, "value": {"type": "number"}}
+      },
+      "permissions": ["net.none", "exec.none"],
+      "execution_mode": "mcp",
+      "process_tier": "optional",
+      "resource_class": "light",
+      "timeout_s": 10,
+      "max_output_bytes": 4000,
+      "requires_approval": "never",
+      "side_effects": "none"
+    },
+    {
+      "id": "calc.describe",
+      "mcp_tool": "describe",
+      "name": "Describe numbers",
+      "description": "Count, mean, median, sample standard deviation, minimum and maximum of a list of numbers.",
+      "version": "1.0.0",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["numbers"],
+        "properties": {
+          "numbers": {"type": "array", "minItems": 1, "maxItems": 10000, "items": {"type": "number"}}
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["count", "mean", "median", "stdev", "min", "max"],
+        "properties": {
+          "count": {"type": "integer"}, "mean": {"type": "number"}, "median": {"type": "number"},
+          "stdev": {"type": ["number", "null"]}, "min": {"type": "number"}, "max": {"type": "number"}
+        }
+      },
+      "permissions": ["net.none", "exec.none"],
+      "execution_mode": "mcp",
+      "process_tier": "optional",
+      "resource_class": "light",
+      "timeout_s": 10,
+      "max_output_bytes": 4000,
+      "requires_approval": "never",
+      "side_effects": "none"
+    }
+  ]
+}

@@ -205,18 +205,29 @@ class ResourceSampler:
             for mp in self.supervisor.managed():
                 for pid in mp.job.pids() or [mp.pid]:
                     supervised[pid] = mp.tier
-        found: list[tuple[psutil.Process, str, str]] = [
-            (p, "xodus_app", "core") for p in process_tree(backend_root()) if p.pid not in supervised
-        ]
+        # Each process is counted once. Supervised processes are classified by their own tier first, then the backend's
+        # tree, then Ollama's (found by its port). The trees can overlap, e.g. if Ollama ever ran inside or under the
+        # backend process (as the test fake does); a process seen once is not added again.
+        found: list[tuple[psutil.Process, str, str]] = []
+        seen: set[int] = set()
+
+        def add(proc: psutil.Process, group: str, tier: str) -> None:
+            if proc.pid not in seen:
+                seen.add(proc.pid)
+                found.append((proc, group, tier))
+
         for pid, tier in supervised.items():
             try:
-                found.append((psutil.Process(pid), "optional" if tier == "optional" else "xodus_app", tier))
+                add(psutil.Process(pid), "optional" if tier == "optional" else "xodus_app", tier)
             except psutil.Error:
                 pass
+        for p in process_tree(backend_root()):
+            add(p, "xodus_app", "core")
         pid = listener_pid(self.ollama_port)
         if pid:
             try:
-                found += [(p, "ollama", "core") for p in process_tree(psutil.Process(pid))]
+                for p in process_tree(psutil.Process(pid)):
+                    add(p, "ollama", "core")
             except psutil.Error:
                 pass
         return found

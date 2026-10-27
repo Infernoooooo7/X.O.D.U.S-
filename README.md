@@ -3,7 +3,16 @@
 Local-first personal AI workspace and research testbed. The governing specification is the XODUS master
 prompt v2. Nothing here is deployed or exposed beyond `127.0.0.1`.
 
-**State: Gate D (persistence and knowledge), on top of Gate C (safety and core architecture).**
+**State: Gate E (interface and extensibility), on top of Gates C and D.**
+
+- **UI:** eleven views served as a static export by the backend (no Node process at runtime): Workspace (chat, ask
+  your documents with checkable citations, run tasks with a live T+ timeline and inline approvals), History,
+  Knowledge, Memory, Capabilities (catalogue, extensions, rejected manifests, forms generated from JSON Schema),
+  Approvals, Activity (tasks and the audit log), Models (profiles and switching), Resources (every process with its
+  tier and memory, thresholds, pause and resume), Experiments and Settings. Light and dark, 360 px to desktop.
+- **Extensions:** plugins and MCP servers are folders in `plugins/`; two first-party samples ship (`text.stats`, a
+  subprocess plugin, and `calc`, an MCP server). See `plugins/README.md`.
+- **Conversations** are saved; **model profiles** can be switched (one generation model loaded at a time).
 
 - **Knowledge:** documents (Markdown, text, CSV, PDF with a text layer, DOCX) are ingested by a supervised worker
   process into one SQLite file (`data/xodus.db`: FTS5 keyword index + `sqlite-vec` vector index), searched by hybrid
@@ -36,10 +45,15 @@ See `docs/THREAT_MODEL.md` for what is enforced, what is tested and what is not.
 
 ```powershell
 cd backend;  uv sync;        cd ..
-cd frontend; npm ci; npx next build; cd ..   # writes frontend/out/
+cd frontend; npm ci; npm run build; cd ..    # writes frontend/out/ (static files only)
 scripts\start-ollama.ps1
 & "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" pull qwen3:4b-instruct-2507-q4_K_M
 ```
+
+`npm run dev` (in `frontend/`) starts the Next.js development server on 127.0.0.1 for UI work only: its pages call
+`/api` on their own origin, so for real use open the backend (http://127.0.0.1:8765), which serves the built UI.
+Build and run the UI through `npm run build` / `npm run dev`: those scripts switch Next.js telemetry off
+(`NEXT_TELEMETRY_DISABLED=1`), so nothing is sent to Vercel. Calling `npx next build` directly bypasses that.
 
 ## Run
 
@@ -85,6 +99,20 @@ id = "notes"
 grants = ["kb.read"]
 ```
 
+## API (Gate E additions)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET/POST /api/conversations`, `GET/PATCH/DELETE .../{id}` | Saved conversations (search with `q`); deleting removes messages and derived memory |
+| `POST /api/chat`, `/api/knowledge/ask`, `/api/tasks` with `"conversation_id"` | Save both turns; chat also sends earlier turns as history (bounded by `chat.max_history_tokens`) |
+| `GET /api/models`, `POST /api/models/switch` `{"profile"}` | Profiles with install, load and digest state and the footprint measured at the last switch; switch (refused while busy) |
+| `GET /api/resources` | Every process with tier, USS, working set, private commit, GPU memory; lines; threshold levels (shown, not enforced: Gate F) |
+| `POST /api/processes/{pid}/stop` | Stop an optional-tier process XODUS launched (core processes are refused) |
+| `POST /api/ingestion/pause`, `.../resume` | Pause background ingestion (the running file resumes from its checkpoint) |
+| `GET /api/audit?limit&before&event` | The audit log, newest first, paginated |
+| `GET /api/experiments`, `/api/experiments/file?path=` | Read-only results from `experiments/results/` |
+| `GET /api/settings`, `GET /api/extensions` | Effective configuration (read-only); plugin and MCP inventory with processes |
+
 ## API (Gate D additions)
 
 | Endpoint | Purpose |
@@ -118,7 +146,12 @@ grants = ["kb.read"]
 cd backend
 uv run pytest -q                      # everything; live-Ollama, GPU and browser tests skip (with a reason) when unavailable
 uv run pytest -q -m "not ollama and not e2e"   # offline subset
+uv run pytest -q tests/test_ui_e2e.py # browser tests (installed Chrome via Playwright; build the UI first)
+cd ..\frontend
+npm test                              # Vitest unit and component tests
 ```
+
+Browser screenshots and the axe-core accessibility results go to `experiments/results/gate-e/`.
 
 ## Smoke benchmark (master prompt section 6)
 

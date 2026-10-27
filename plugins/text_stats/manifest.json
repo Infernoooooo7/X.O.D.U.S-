@@ -1,0 +1,43 @@
+{
+  "id": "text.stats",
+  "name": "Text statistics",
+  "description": "Count the characters, words, sentences and paragraphs in a text, estimate its reading time and list its most frequent words. Read-only: it only looks at the text it is given.",
+  "version": "1.0.0",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["text"],
+    "properties": {
+      "text": {"type": "string", "minLength": 1, "maxLength": 100000, "description": "The text to measure."},
+      "top": {"type": "integer", "minimum": 0, "maximum": 20, "default": 5, "description": "How many frequent words to list."}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["characters", "words", "sentences", "paragraphs", "average_word_length", "reading_minutes", "top_words"],
+    "properties": {
+      "characters": {"type": "integer"},
+      "words": {"type": "integer"},
+      "sentences": {"type": "integer"},
+      "paragraphs": {"type": "integer"},
+      "average_word_length": {"type": "number"},
+      "reading_minutes": {"type": "number"},
+      "top_words": {
+        "type": "array",
+        "items": {"type": "object", "additionalProperties": false, "required": ["word", "count"],
+                  "properties": {"word": {"type": "string"}, "count": {"type": "integer"}}}
+      }
+    }
+  },
+  "permissions": ["net.none", "exec.none"],
+  "execution_mode": "subprocess",
+  "process_tier": "optional",
+  "resource_class": "light",
+  "timeout_s": 10,
+  "max_output_bytes": 20000,
+  "cancellable": true,
+  "requires_approval": "never",
+  "side_effects": "none",
+  "entry": {"command": ["python", "main.py"]}
+}

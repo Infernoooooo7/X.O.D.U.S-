@@ -32,9 +32,10 @@ from xodus.capabilities.registry import (
     OutputTooLarge,
     PluginCrashed,
     PluginError,
+    ProcessLimit,
 )
 from xodus.security.paths import resolve_existing
-from xodus.supervisor.supervisor import ManagedProcess, Supervisor
+from xodus.supervisor.supervisor import ManagedProcess, Supervisor, SupervisorLimit
 
 
 class ProcessExited(Exception):
@@ -122,17 +123,20 @@ class SubprocessCapability:
         if self._proc is not None:
             await asyncio.to_thread(self.supervisor.stop, self._proc, "exited")
         (self.work_dir / "tmp").mkdir(parents=True, exist_ok=True)
-        self._proc = await asyncio.to_thread(
-            self.supervisor.launch,
-            self._command(),
-            role="plugin",
-            owner=self.manifest.id,
-            start_reason="first use" if self._next_id == 0 else "restart after stop",
-            cwd=self.work_dir,
-            env=scrubbed_env(self.work_dir, self.secrets),
-            tier="optional",
-            stderr_path=self.work_dir / "stderr.log",
-        )
+        try:
+            self._proc = await asyncio.to_thread(
+                self.supervisor.launch,
+                self._command(),
+                role="plugin",
+                owner=self.manifest.id,
+                start_reason="first use" if self._next_id == 0 else "restart after stop",
+                cwd=self.work_dir,
+                env=scrubbed_env(self.work_dir, self.secrets),
+                tier="optional",
+                stderr_path=self.work_dir / "stderr.log",
+            )
+        except SupervisorLimit as exc:  # the envelope's optional-process cap: refuse clearly, start nothing
+            raise ProcessLimit(str(exc)) from None
         return self._proc
 
     async def _kill(self, reason: str) -> None:

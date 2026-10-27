@@ -40,9 +40,31 @@ versioned migration runner; they arrive with the PostgreSQL adapter if that is a
 | next | 16.4.3 | Static export of the UI. 16.3.3 was replaced after `npm audit` reported critical advisories fixed in 16.4.3 |
 | react / react-dom | 19.3.1 | UI library |
 | typescript, @types/* | 7.0.2 | Strict type checking at build time |
+| tailwindcss, @tailwindcss/postcss, postcss | 4.3.3, 4.3.3, 8.5.32 | Styling, compiled to plain CSS at build time (Gate E) |
+| shadcn | 4.22.2 | shadcn/ui: its CLI wrote the component sources in `components/ui/`; its `tailwind.css` is imported at build time |
+| radix-ui | 1.8.1 | Accessible primitives behind those components (dialog, alert dialog, sheet, checkbox, label): focus trapping, Escape, ARIA |
+| class-variance-authority, cn | 0.7.1, 0.5.0 | Component variants and class merging used by the shadcn components (`cn` is shadcn's own package, MIT) |
+| lucide-react | 1.62.0 | One icon (the mobile menu button); tree-shaken, only used icons are bundled |
+| tw-animate-css | 1.4.0 | Open and close transitions of dialogs; disabled under `prefers-reduced-motion` |
 
-Not added yet (planned for later gates, per the stack in section 10): Tailwind CSS, shadcn/ui and Vitest
-(Gate E), SQLAlchemy, Alembic and psycopg (Gate D), pypdf and python-docx (Gate D).
+All of the above end up as static files in `frontend/out/` (1.36 MB in total, measured after `npm run build`); no Node
+process runs at runtime. Fonts are local Windows fonts (Segoe UI Variable, Cascadia Mono): nothing is downloaded. The
+shadcn CLI's default preset added the Geist font through `next/font/google`, which downloads it at build time; that
+was removed.
+
+## Frontend tests (development only)
+
+| Package | Version | Why |
+|---|---|---|
+| vitest | 5.0.5 | Unit and component tests (`npm test`) |
+| jsdom | 30.1.3 | Browser-like DOM for component tests |
+| @testing-library/react, @testing-library/dom | 16.3.3, 10.4.2 | Render components and query them by role and label, as a user or screen reader would |
+| axe-core | 4.14.0 | Accessibility rules (WCAG 2.0/2.1/2.2 A and AA) injected into the pages by the Playwright browser tests |
+
+Not used: `@vitejs/plugin-react` (its current version requires Babel 8 while the shadcn CLI needs Babel 7; Vite's
+built-in JSX transform is enough), any Playwright for Node (the browser tests use the Python package already
+installed in Gate B). Not added yet (planned for later gates, per the stack in section 10): SQLAlchemy, Alembic and
+psycopg (only with the PostgreSQL adapter, which was not approved).
 
 ## External runtime (not Python or Node packages)
 

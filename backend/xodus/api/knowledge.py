@@ -25,6 +25,7 @@ from xodus.obs import log_event
 from xodus.retrieval.answer import AnswerService
 from xodus.retrieval.hybrid import QueryError, Retriever
 from xodus.security.audit import AuditLog
+from xodus.storage.conversations import ConversationStore
 from xodus.storage.knowledge import Conflict, CorpusLimitExceeded, KnowledgeStore, LeaseLost, NotFound
 from xodus.storage.migrate import StorageError
 
@@ -43,6 +44,7 @@ class KnowledgeContext:
     retriever: Retriever
     answers: AnswerService
     audit: AuditLog
+    conversations: ConversationStore | None = None
 
 
 class _Strict(BaseModel):
@@ -71,6 +73,7 @@ class AskRequest(_Strict):
     question: str = Field(min_length=1, max_length=4000)
     collections: list[Name] | None = Field(None, max_length=20)
     k: int | None = Field(None, ge=1, le=50)
+    conversation_id: int | None = Field(None, ge=1)
 
 
 class MemoryCreate(_Strict):
@@ -224,10 +227,47 @@ def register_knowledge_routes(app: FastAPI, k: KnowledgeContext) -> None:
     @app.post("/api/knowledge/ask")
     async def ask(req: AskRequest) -> StreamingResponse:
         ids = await collection_ids(req.collections)
+        convs, conv_id = k.conversations, req.conversation_id
+        if conv_id is not None and convs is not None:
+            await asyncio.to_thread(convs.add_message, conv_id, role="user", mode="ask", content=req.question,
+                                    meta={"collections": req.collections})
+
+        def save(content: str, status: str, meta: dict[str, Any]) -> int | None:
+            if conv_id is None or convs is None:
+                return None
+            try:
+                return convs.add_message(conv_id, role="assistant", mode="ask", content=content, status=status,
+                                         model=k.answers.provider.model, meta=meta)["id"]
+            except Exception as exc:  # the answer was already shown; a failed save is logged, not raised
+                log_event("conversation_save_failed", logging.ERROR, conversation_id=conv_id, detail=repr(exc))
+                return None
 
         async def events() -> AsyncIterator[str]:
-            async for name, data in k.answers.stream(req.question, ids, req.k):
-                yield _sse(name, data)
+            evidence: list[dict[str, Any]] = []
+            parts: list[str] = []
+            saved = False
+            try:
+                async for name, data in k.answers.stream(req.question, ids, req.k):
+                    if name == "meta":
+                        evidence = [{key: e.get(key) for key in ("chunk_id", "document", "collection", "locator", "heading")}
+                                    for e in data.get("evidence", [])]
+                    elif name == "token":
+                        parts.append(data.get("t", ""))
+                    elif name == "done":
+                        saved = True
+                        data = {**data, "message_id": await asyncio.to_thread(save, data.get("answer", ""), "complete", {
+                            "citations": data.get("citations"), "uncited": data.get("uncited"),
+                            "insufficient": data.get("insufficient"), "model_called": data.get("model_called"),
+                            "evidence": evidence, "prompt_version": data.get("prompt_version")})}
+                    elif name == "error":
+                        saved = True
+                        await asyncio.to_thread(save, "".join(parts), "partial" if parts else "error",
+                                                {"code": data.get("code"), "message": data.get("message"), "evidence": evidence})
+                    yield _sse(name, data)
+            except asyncio.CancelledError:
+                if not saved:
+                    save("".join(parts), "cancelled", {"code": "cancelled", "evidence": evidence})
+                raise
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 

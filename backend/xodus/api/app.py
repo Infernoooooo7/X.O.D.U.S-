@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -23,6 +24,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from xodus import __version__
 from xodus.api.knowledge import KnowledgeContext, register_knowledge_routes
+from xodus.api.workspace import WorkspaceContext, register_workspace_routes
 from xodus.capabilities.discovery import discover
 from xodus.capabilities.kb_search import KnowledgeSearch
 from xodus.capabilities.registry import CapabilityError, CapabilityRegistry, InvocationContext
@@ -36,7 +38,8 @@ from xodus.orchestrator.runner import ExecutorDeps, invoke_checked, roots_for
 from xodus.orchestrator.task import TaskLog
 from xodus.orchestrator.tasks import TaskLimit, TaskManager
 from xodus.providers import build_provider
-from xodus.providers.base import ModelProvider, ProviderError, RequestBudget
+from xodus.providers.base import ModelProvider, ProviderError, RequestBudget, estimate_tokens
+from xodus.providers.profiles import ModelManager, SwitchLog
 from xodus.resources.admission import AdmissionGate, QueueFull
 from xodus.resources.sampler import Nvml, ResourceSampler, mib
 from xodus.retrieval.answer import AnswerService
@@ -44,6 +47,7 @@ from xodus.retrieval.hybrid import Retriever
 from xodus.security.approvals import ApprovalError, ApprovalStore
 from xodus.security.audit import AuditLog, verify
 from xodus.security.policy import PermissionPolicy, Root
+from xodus.storage.conversations import ConversationStore
 from xodus.storage.knowledge import KnowledgeStore
 from xodus.storage.memory import MemoryStore
 from xodus.storage.sqlite import Database
@@ -60,6 +64,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     num_ctx: int | None = None
     seed: int | None = None
+    conversation_id: int | None = Field(None, ge=1)  # save both turns and send earlier turns as history
 
 
 class InvokeRequest(BaseModel):
@@ -73,6 +78,7 @@ class TaskRequest(BaseModel):
 
     goal: str = Field(min_length=1)
     arm: str | None = None
+    conversation_id: int | None = Field(None, ge=1)  # record the goal and, once the task ends, its outcome
 
 
 class ApprovalDecision(BaseModel):
@@ -144,6 +150,26 @@ def _resource_summary(snap: dict[str, Any], vram_peak: int | None) -> dict[str, 
     }
 
 
+class UIStaticFiles(StaticFiles):
+    """The exported UI. Next.js 16 prefetches route segments as "<view>/__next.<view>.__PAGE__.txt" but its static export
+    writes them as "<view>/__next.<view>/__PAGE__.txt"; when the first is missing, serve the second. The mapped path goes
+    through the same lookup (and the same confinement to the UI folder) as any other request."""
+
+    _SEGMENT = re.compile(r"^__next\.([A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+)*)\.txt$")
+
+    def lookup_path(self, path: str) -> tuple[str, Any]:
+        full, stat = super().lookup_path(path)
+        if stat is None:
+            head, _, name = path.replace("\\", "/").rpartition("/")
+            match = self._SEGMENT.match(name)
+            if match:
+                first, *rest = match.group(1).split(".")
+                if rest:
+                    alt = "/".join(p for p in (head, f"__next.{first}", *rest[:-1], f"{rest[-1]}.txt") if p)
+                    return super().lookup_path(alt)
+        return full, stat
+
+
 def build_policy(settings: Settings) -> PermissionPolicy:
     roots = [Root(r.id, r.path, frozenset(r.grants)) for r in settings.permissions.roots]
     collections = {c.id: c.grants for c in settings.permissions.collections}
@@ -196,12 +222,24 @@ def create_app(
     tasks = TaskManager(deps, settings, TaskLog(settings.log_dir / "tasks.jsonl"))
     ingestion = IngestionService(settings, store, supervisor,
                                  {r.id: RootInfo(r.path, frozenset(r.grants)) for r in settings.permissions.roots}, audit)
+    conversations = ConversationStore(db)
     knowledge = KnowledgeContext(settings, store, memory, ingestion, retriever,
-                                 AnswerService(retriever, provider, admission, settings), audit)
+                                 AnswerService(retriever, provider, admission, settings), audit, conversations)
     embedding_status: dict[str, Any] = {"status": "unchecked", "model": settings.ollama.embed_model,
                                         "configured_dimensions": settings.embedding.dimensions,
                                         "num_gpu": settings.embedding.num_gpu}
     sampler = sampler or ResourceSampler(ollama_port=urlparse(settings.ollama.base_url).port or 11434, supervisor=supervisor)
+
+    def generation_busy() -> str | None:
+        active = [t for t in tasks.list() if not t.terminal]
+        if active:
+            return f"{len(active)} task(s) are still running; let them finish or cancel them before switching models."
+        if admission.running or admission.waiting:
+            return "A reply is being generated; wait for it to finish before switching models."
+        return None
+
+    models = ModelManager(settings, provider, admission, sampler.nvml, SwitchLog(db), audit, generation_busy)
+    recorders: set[asyncio.Task[None]] = set()  # write each task's outcome into its conversation
     started_at = time.time()
     origins = {f"http://127.0.0.1:{settings.server.port}", f"http://localhost:{settings.server.port}"}
 
@@ -212,6 +250,10 @@ def create_app(
         except ProviderError as exc:
             info = {"error": exc.code, "message": exc.message}
         await _probe_embedder()
+        try:  # never two generation models resident: unload one an earlier run left behind
+            leftover = await models.reconcile()
+        except ProviderError:
+            leftover = []
         log_event(
             "startup",
             version=__version__,
@@ -224,6 +266,8 @@ def create_app(
             audit_head={"seq": audit.seq, "hash": audit.head},
             storage={"database": str(db.path), "migrations_applied": applied_migrations, "embedding": embedding_status},
             ui_built=UI_DIR.is_dir(),
+            models={"active": models.active_id, "profiles": sorted(models.profiles), "unloaded_leftovers": leftover},
+            extensions=[e.inventory()["id"] for e in registry.extensions],
         )
         reaper = asyncio.create_task(supervisor.run_reaper(settings.supervisor.reaper_interval_s))
         monitor = asyncio.create_task(_ingestion_monitor())
@@ -232,6 +276,8 @@ def create_app(
         app.state.supervisor = supervisor
         yield
         await tasks.shutdown()
+        if recorders:  # cancelled tasks have ended; let their outcomes reach the database before it closes
+            await asyncio.wait(set(recorders), timeout=5)
         for background in (monitor, reaper):
             background.cancel()
             with suppress(asyncio.CancelledError):
@@ -297,6 +343,7 @@ def create_app(
             "envelope": {"max_running": admission.max_running, "max_queued": admission.max_queued,
                          "running": admission.running, "queued": admission.waiting},
             "measurement": {"nvml": sampler.nvml.error or "ok", "gpu_counters": sampler.gpu.error or "ok"},
+            "models": {"active": models.active_id, "switching": models.switching, "num_ctx": settings.ollama.num_ctx},
             "knowledge": {"embedding": embedding_status, "ingestion": ingestion.status(),
                           "store": (lambda s: {k: s[k] for k in ("schema_version", "collections", "documents", "chunks", "jobs",
                                                                  "memory_items")})(await asyncio.to_thread(store.stats))},
@@ -312,23 +359,46 @@ def create_app(
         if num_ctx not in settings.ollama.allowed_num_ctx:
             raise HTTPException(422, f"num_ctx must be one of {settings.ollama.allowed_num_ctx}.")
         request_id = uuid.uuid4().hex[:12]
-        messages = [{"role": "user", "content": req.message}]
-        if settings.chat.system_prompt:
-            messages.insert(0, {"role": "system", "content": settings.chat.system_prompt})
+        system = [{"role": "system", "content": settings.chat.system_prompt}] if settings.chat.system_prompt else []
+        user = {"role": "user", "content": req.message}
+        history: list[dict[str, str]] = []
+        if req.conversation_id is not None:
+            # Earlier turns fill what is left of the context after the system prompt, this message and the answer
+            # (resource rule 6: history is truncated, oldest first, never unbounded).
+            room = num_ctx - settings.ollama.max_output_tokens - estimate_tokens([*system, user]) - 64
+            history = await asyncio.to_thread(conversations.history, req.conversation_id,
+                                              max(0, min(settings.chat.max_history_tokens, room)))
+            await asyncio.to_thread(conversations.add_message, req.conversation_id, role="user", mode="chat",
+                                    content=req.message, request_id=request_id)
+        messages = [*system, *history, user]
         budget = RequestBudget(num_ctx=num_ctx, max_output_tokens=settings.ollama.max_output_tokens,
                                timeout_s=settings.ollama.request_timeout_s)
         return StreamingResponse(
-            _chat_events(request_id, messages, budget, req.seed, len(req.message)),
+            _chat_events(request_id, messages, budget, req.seed, len(req.message), req.conversation_id, len(history)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Request-ID": request_id},
         )
 
+    def save_reply(conversation_id: int | None, mode: str, content: str, status: str, **fields: Any) -> int | None:
+        """Write an assistant turn; a failure to save is logged and never breaks the reply already shown."""
+        if conversation_id is None:
+            return None
+        try:
+            return conversations.add_message(conversation_id, role="assistant", mode=mode, content=content, status=status,
+                                             model=provider.model, **fields)["id"]
+        except Exception as exc:
+            log_event("conversation_save_failed", logging.ERROR, conversation_id=conversation_id, detail=repr(exc))
+            return None
+
     async def _chat_events(request_id: str, messages: list[dict[str, Any]], budget: RequestBudget, seed: int | None,
-                           message_chars: int) -> AsyncIterator[str]:
+                           message_chars: int, conversation_id: int | None, history_turns: int) -> AsyncIterator[str]:
         t0 = time.perf_counter()
-        base = {"request_id": request_id, "model": provider.model, "num_ctx": budget.num_ctx, "message_chars": message_chars}
+        base = {"request_id": request_id, "model": provider.model, "profile": models.active_id, "num_ctx": budget.num_ctx,
+                "message_chars": message_chars, "conversation_id": conversation_id, "history_turns": history_turns}
         yield sse("meta", base)
         t_first: float | None = None
+        parts: list[str] = []
+        saved = False
         try:
             async with admission.slot():
                 t_admitted = time.perf_counter()
@@ -342,6 +412,7 @@ def create_app(
                             break
                         if t_first is None:
                             t_first = time.perf_counter()
+                        parts.append(chunk.text)
                         yield sse("token", {"t": chunk.text})
                 finally:
                     vram_peak = await peak.stop()
@@ -366,19 +437,35 @@ def create_app(
             summary = _resource_summary(snapshot, vram_peak)
             log_event("chat_request", **base, outcome="ok", timing=timing, usage=usage, resources=summary,
                       resource_snapshot=snapshot)
-            yield sse("done", {**base, "timing": timing, "usage": usage, "resources": summary})
+            saved = True
+            message_id = await asyncio.to_thread(save_reply, conversation_id, "chat", "".join(parts), "complete",
+                                                 request_id=request_id, meta={"timing": timing, "usage": usage,
+                                                                              "num_ctx": budget.num_ctx, "profile": models.active_id})
+            yield sse("done", {**base, "timing": timing, "usage": usage, "resources": summary, "message_id": message_id})
         except QueueFull as exc:
             log_event("chat_request", logging.WARNING, **base, outcome="queue_full")
+            saved = True
+            await asyncio.to_thread(save_reply, conversation_id, "chat", "", "error", request_id=request_id,
+                                    meta={"code": "queue_full", "message": str(exc)})
             yield sse("error", {**base, "code": "queue_full", "message": str(exc)})
         except ProviderError as exc:
             log_event("chat_request", logging.WARNING, **base, outcome=exc.code, message=exc.message, detail=exc.detail,
                       elapsed_ms=round((time.perf_counter() - t0) * 1000, 1), partial=t_first is not None)
+            saved = True
+            await asyncio.to_thread(save_reply, conversation_id, "chat", "".join(parts), "partial" if parts else "error",
+                                    request_id=request_id, meta={"code": exc.code, "message": exc.message})
             yield sse("error", {**base, "code": exc.code, "message": exc.message, "partial": t_first is not None})
         except asyncio.CancelledError:
             log_event("chat_request", **base, outcome="cancelled", elapsed_ms=round((time.perf_counter() - t0) * 1000, 1))
+            if not saved:  # the client went away (Stop); keep what was shown, marked as cancelled. Synchronous: no awaits here.
+                save_reply(conversation_id, "chat", "".join(parts), "cancelled", request_id=request_id,
+                           meta={"code": "cancelled", "message": "Stopped before the model finished."})
             raise
         except Exception as exc:
             log_event("chat_request", logging.ERROR, **base, outcome="internal_error", detail=repr(exc))
+            if not saved:
+                await asyncio.to_thread(save_reply, conversation_id, "chat", "".join(parts), "partial" if parts else "error",
+                                        request_id=request_id, meta={"code": "internal_error"})
             yield sse("error", {**base, "code": "internal_error",
                                 "message": f"Unexpected backend error (request {request_id}); see logs/xodus.jsonl."})
 
@@ -428,13 +515,33 @@ def create_app(
     async def create_task(req: TaskRequest) -> dict[str, Any]:
         if len(req.goal) > settings.chat.max_message_chars:
             raise HTTPException(422, f"Goal is longer than {settings.chat.max_message_chars} characters.")
+        if req.conversation_id is not None:
+            await asyncio.to_thread(conversations.get, req.conversation_id)  # 404 before anything starts
         try:
             task = tasks.create(req.goal, req.arm)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         except TaskLimit as exc:
             raise HTTPException(429, str(exc)) from exc
-        return {"task_id": task.id, "arm": task.arm, "events": f"/api/tasks/{task.id}/events"}
+        if req.conversation_id is not None:
+            await asyncio.to_thread(conversations.add_message, req.conversation_id, role="user", mode="task",
+                                    content=req.goal, task_id=task.id, meta={"arm": task.arm})
+            recorder = asyncio.create_task(_record_task(task, req.conversation_id), name=f"xodus-record-{task.id}")
+            recorders.add(recorder)
+            recorder.add_done_callback(recorders.discard)
+        return {"task_id": task.id, "arm": task.arm, "events": f"/api/tasks/{task.id}/events",
+                "conversation_id": req.conversation_id}
+
+    async def _record_task(task: Any, conversation_id: int) -> None:
+        """Wait for the task's final event, then write its outcome as the assistant turn: 'complete' only if the
+        backend finished it as completed."""
+        async for _ in task.follow():
+            pass
+        status = {"completed": "complete", "cancelled": "cancelled"}.get(task.status, "error")
+        content = task.answer or task.message or f"The task ended with status {task.status}."
+        await asyncio.to_thread(save_reply, conversation_id, "task", content, status, task_id=task.id,
+                                meta={"task_status": task.status, "arm": task.arm, "steps": len(task.steps),
+                                      "tainted": task.tainted})
 
     @app.get("/api/tasks")
     async def list_tasks() -> list[dict[str, Any]]:
@@ -496,9 +603,11 @@ def create_app(
         return {"ok": result.ok, "records": result.records, "first_bad_seq": result.first_bad_seq, "reason": result.reason}
 
     register_knowledge_routes(app, knowledge)
+    register_workspace_routes(app, WorkspaceContext(settings, conversations, models, sampler, supervisor, registry,
+                                                    ingestion, audit))
 
     if UI_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=UI_DIR, html=True), name="ui")
+        app.mount("/", UIStaticFiles(directory=UI_DIR, html=True), name="ui")
     else:
 
         @app.get("/", response_class=HTMLResponse)
@@ -510,4 +619,7 @@ def create_app(
     app.state.approvals = approvals
     app.state.knowledge = knowledge
     app.state.db = db
+    app.state.models = models
+    app.state.conversations = conversations
+    app.state.settings = settings
     return app

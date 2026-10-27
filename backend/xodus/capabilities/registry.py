@@ -77,6 +77,13 @@ class PluginError(CapabilityError):
     status = 502
 
 
+class ProcessLimit(CapabilityError):
+    """The supported envelope's cap on optional processes is reached; nothing was started."""
+
+    code = "process_limit"
+    status = 503
+
+
 @dataclass
 class InvocationContext:
     task_id: str | None

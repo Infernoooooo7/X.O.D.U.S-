@@ -34,6 +34,20 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+def is_cloud_model_name(name: str) -> bool:
+    """Ollama marks models that run on ollama.com, not on this computer, with a '-cloud' tag (e.g. 'gpt-oss:120b-cloud');
+    the suffix is present in the installed Ollama 0.40.11 binary. XODUS only uses local open-weight models."""
+    tag = name.rsplit(":", 1)[1] if ":" in name else name
+    return tag.lower() == "cloud" or tag.lower().endswith("-cloud")
+
+
+def _local_model(name: str) -> str:
+    if is_cloud_model_name(name):
+        raise ValueError(f"{name!r} is an Ollama cloud model (it runs on ollama.com, not on this computer); "
+                         "XODUS uses local models only")
+    return name
+
+
 def _repo_path(value: Path | str) -> Path:
     path = Path(value)
     return path if path.is_absolute() else REPO_ROOT / path
@@ -75,6 +89,11 @@ class OllamaSettings(_Section):
     request_timeout_s: float = Field(120.0, gt=0)
     sampling: SamplingSettings = SamplingSettings()
 
+    @field_validator("model", "embed_model")
+    @classmethod
+    def _local_models(cls, v: str) -> str:
+        return _local_model(v)
+
     @field_validator("base_url")
     @classmethod
     def _loopback_url(cls, v: str) -> str:
@@ -111,6 +130,11 @@ class ModelProfileSettings(_Section):
     num_ctx: int = Field(8192, ge=512, le=16384)
     enabled: bool = True  # false = listed for information, never switched to (e.g. does not fit in VRAM)
     note: str = Field("", max_length=300)
+
+    @field_validator("model")
+    @classmethod
+    def _local_model(cls, v: str) -> str:
+        return _local_model(v)
 
 
 class ModelSettings(_Section):

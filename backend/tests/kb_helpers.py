@@ -60,6 +60,15 @@ class FakeOllama:
         self.show_missing_for: set[str] = set()  # /api/show answers 404 for these model names
         self.chat_answer: Callable[[list[dict[str, Any]]], str] | None = None
         self.chat_requests: list[dict[str, Any]] = []
+        # Model state for profile switching: what is installed (/api/tags), what is loaded (/api/ps), load failures.
+        self.models: list[dict[str, Any]] = [{"name": "fake-model:latest", "digest": "abc", "size": 1},
+                                             {"name": "fake-embed:latest", "digest": "def", "size": 1}]
+        self.loaded: dict[str, int] = {}
+        self.vram_per_model = 1_000_000_000
+        self.load_fail: set[str] = set()
+        self.keep_loaded_after_unload: set[str] = set()  # models that ignore keep_alive 0 (to provoke unload_timeout)
+        self.generate_requests: list[dict[str, Any]] = []
+        self.chat_delay_s = 0.0
         self.on_embed: Callable[[list[str]], None] | None = None
         self._lock = threading.Lock()
         outer = self
@@ -80,8 +89,10 @@ class FakeOllama:
                 if self.path == "/api/version":
                     self._json(200, {"version": "0.0-fake"})
                 elif self.path == "/api/tags":
-                    self._json(200, {"models": [{"name": "fake-model:latest", "digest": "abc", "size": 1},
-                                                {"name": "fake-embed:latest", "digest": "def", "size": 1}]})
+                    self._json(200, {"models": outer.models})
+                elif self.path == "/api/ps":
+                    self._json(200, {"models": [{"name": n, "model": n, "size": v, "size_vram": v, "expires_at": "2099-01-01T00:00:00Z"}
+                                                for n, v in list(outer.loaded.items())]})
                 else:
                     self._json(404, {"error": "not found"})
 
@@ -114,10 +125,30 @@ class FakeOllama:
                         outer.on_embed(texts)
                     dim = body.get("dimensions") or outer.dim
                     self._json(200, {"embeddings": [hash_vector(t, dim) for t in texts], "prompt_eval_count": 10 * len(texts)})
+                elif self.path == "/api/generate":
+                    model = body.get("model")
+                    with outer._lock:
+                        outer.generate_requests.append(body)
+                    if body.get("keep_alive") == 0:
+                        if model not in outer.keep_loaded_after_unload:
+                            outer.loaded.pop(model, None)
+                        return self._json(200, {"model": model, "done": True, "done_reason": "unload"})
+                    if model in outer.load_fail:
+                        return self._json(500, {"error": f"llama runner process has terminated: out of memory ({model})"})
+                    outer.loaded[model] = outer.vram_per_model
+                    self._json(200, {"model": model, "response": "", "done": True})
                 elif self.path == "/api/chat":
                     with outer._lock:
                         outer.chat_requests.append(body)
+                    if body.get("model") in outer.load_fail:
+                        return self._json(500, {"error": "llama runner process has terminated"})
+                    outer.loaded[body.get("model")] = outer.vram_per_model
                     text = outer.chat_answer(body["messages"]) if outer.chat_answer else "ok"
+                    if outer.chat_delay_s:
+                        time.sleep(outer.chat_delay_s)
+                    if body.get("stream") is False:
+                        return self._json(200, {"model": body.get("model"), "message": {"role": "assistant", "content": text},
+                                                "done": True, "done_reason": "stop", "prompt_eval_count": 7, "eval_count": 3})
                     self.send_response(200)
                     self.send_header("Content-Type", "application/x-ndjson")
                     self.end_headers()
