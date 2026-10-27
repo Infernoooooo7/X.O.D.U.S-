@@ -69,6 +69,7 @@ class FakeOllama:
         self.keep_loaded_after_unload: set[str] = set()  # models that ignore keep_alive 0 (to provoke unload_timeout)
         self.generate_requests: list[dict[str, Any]] = []
         self.chat_delay_s = 0.0
+        self.chat_word_delay_s = 0.0  # pause between streamed words (keeps a reply visibly streaming)
         self.on_embed: Callable[[list[str]], None] | None = None
         self._lock = threading.Lock()
         outer = self
@@ -154,6 +155,9 @@ class FakeOllama:
                     self.end_headers()
                     for word in text.split(" "):
                         self.wfile.write(json.dumps({"message": {"content": word + " "}, "done": False}).encode() + b"\n")
+                        if outer.chat_word_delay_s:
+                            self.wfile.flush()
+                            time.sleep(outer.chat_word_delay_s)
                     self.wfile.write(json.dumps({"done": True, "done_reason": "stop", "prompt_eval_count": 7, "eval_count": 3}).encode() + b"\n")
                 else:
                     self._json(404, {"error": "not found"})

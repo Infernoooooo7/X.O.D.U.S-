@@ -16,19 +16,32 @@ from xodus.providers.base import (
     InvalidStructuredOutput,
     ModelNotAvailable,
     ProviderUnavailable,
+    RemoteModelRefused,
     RequestBudget,
     ToolSpec,
 )
-from xodus.providers.ollama import OllamaProvider
+from xodus.providers.ollama import OllamaProvider, is_remote_model
 
 BUDGET = RequestBudget(num_ctx=4096, max_output_tokens=256, timeout_s=5)
 
 
+def tag(name: str, **extra) -> dict:
+    """One /api/tags entry. Ollama omits remote_model and remote_host for models that run on this computer."""
+    return {"name": name, "model": name, "modified_at": "2026-10-01T00:00:00Z", "size": 384, "digest": "abc",
+            "details": {"format": "gguf", "family": "qwen3", "parameter_size": "4.0B", "quantization_level": "Q4_K_M"},
+            **extra}
+
+
+REMOTE = {"remote_model": "gpt-oss:120b", "remote_host": "https://ollama.com:443"}
+
+
 class FakeOllama:
-    def __init__(self, capabilities=("completion", "tools"), chat=None, status=200):
+    def __init__(self, capabilities=("completion", "tools"), chat=None, status=200, tags=None, show_extra=None):
         self.capabilities = list(capabilities)
         self.chat = chat or {"message": {"content": "hello"}, "done": True, "prompt_eval_count": 12, "eval_count": 3}
         self.status = status
+        self.tags = tags if tags is not None else [tag("test-model:latest")]
+        self.show_extra = show_extra or {}
         self.requests: list[tuple[str, dict]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -38,9 +51,9 @@ class FakeOllama:
         if path == "/api/show":
             return httpx.Response(200, json={"capabilities": self.capabilities, "details": {"family": "qwen3",
                                   "quantization_level": "Q4_K_M", "parameter_size": "4.0B"},
-                                  "model_info": {"qwen3.context_length": 262144}})
+                                  "model_info": {"qwen3.context_length": 262144}, **self.show_extra})
         if path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": "test-model:latest", "digest": "abc", "size": 1}]})
+            return httpx.Response(200, json={"models": self.tags})
         if path == "/api/version":
             return httpx.Response(200, json={"version": "0.0-test"})
         if path == "/api/chat":
@@ -167,3 +180,96 @@ async def test_error_mapping(make_settings):
 
 def test_provider_is_chosen_by_config(make_settings):
     assert isinstance(build_provider(make_settings()), OllamaProvider)
+
+
+# ---------------------------------------------------------------------------------------------- remote models
+
+
+@pytest.mark.parametrize("entry, remote", [
+    (tag("qwen3:4b-instruct-2507-q4_K_M"), False),
+    (tag("wordcloud:latest"), False),
+    (tag("local:latest", remote_model="", remote_host=""), False),  # empty means local
+    (tag("my-alias:latest", **REMOTE), True),  # e.g. made with `ollama cp gpt-oss:120b-cloud my-alias`
+    (tag("my-alias:latest", remote_model="gpt-oss:120b"), True),
+    (tag("my-alias:latest", remote_host="https://example.net"), True),
+    (tag("gpt-oss:120b-cloud"), True),
+    (tag("kimi-k2:1t-CLOUD"), True),
+    ({"model": "deepseek-v3.1:671b-cloud"}, True),
+])
+def test_remote_models_are_recognised(entry, remote):
+    assert is_remote_model(entry) is remote
+
+
+async def test_health_reports_a_configured_model_that_does_not_run_here(make_settings):
+    p = provider(make_settings(), FakeOllama(tags=[tag("test-model:latest", **REMOTE), tag("qwen3-embedding:0.6b")]))
+    health = await p.health()
+    assert health["status"] == "remote_model"
+    assert "test-model:latest" in health["message"] and "https://ollama.com:443" in health["message"]
+
+
+async def test_health_reports_a_remote_embedding_model(make_settings):
+    p = provider(make_settings(), FakeOllama(tags=[tag("test-model:latest"), tag("qwen3-embedding:0.6b", **REMOTE)]))
+    health = await p.health()
+    assert health["status"] == "remote_model" and "qwen3-embedding:0.6b" in health["message"]
+
+
+async def _call(p, call: str) -> None:
+    msgs = [{"role": "user", "content": "x"}]
+    if call == "generate":
+        await p.generate(msgs, BUDGET)
+    elif call == "stream":
+        [chunk async for chunk in p.stream(msgs, BUDGET)]
+    elif call == "structured":
+        await p.structured(msgs, {"type": "object"}, BUDGET)
+    elif call == "chat_with_tools":
+        await p.chat_with_tools(msgs, [ToolSpec("t", "d", {"type": "object"})], BUDGET)
+    else:
+        await p.load(num_ctx=4096)
+
+
+@pytest.mark.parametrize("call", ["generate", "stream", "structured", "chat_with_tools", "load"])
+@pytest.mark.parametrize("fake_kw", [
+    {"tags": [tag("test-model:latest", **REMOTE)]},  # /api/tags marks it
+    {"show_extra": REMOTE},  # only /api/show marks it
+], ids=["tags", "show"])
+async def test_a_remote_generation_model_is_refused_before_anything_is_sent(make_settings, call, fake_kw):
+    fake = FakeOllama(**fake_kw)
+    p = provider(make_settings(), fake)
+    with pytest.raises(RemoteModelRefused, match="does not run on this computer"):
+        await _call(p, call)
+    assert [path for path, _ in fake.requests if path in ("/api/chat", "/api/generate")] == []
+
+
+async def test_unloading_a_remote_model_sends_nothing(make_settings):
+    fake = FakeOllama(tags=[tag("test-model:latest", **REMOTE)])
+    p = provider(make_settings(), fake)
+    await p.probe()
+    await p.unload()  # nothing of it is loaded here, so a switch away from it can go ahead
+    assert [path for path, _ in fake.requests if path == "/api/generate"] == []
+
+
+async def test_a_model_name_change_is_probed_again_before_use(make_settings):
+    fake = FakeOllama(tags=[tag("test-model:latest"), tag("alias:latest", **REMOTE)])
+    settings = make_settings()
+    p = provider(settings, fake)
+    await p.generate([{"role": "user", "content": "x"}], BUDGET)  # local: allowed
+    settings.ollama.model = "alias:latest"  # what a profile switch does to the in-memory settings
+    with pytest.raises(RemoteModelRefused):
+        await p.generate([{"role": "user", "content": "x"}], BUDGET)
+    assert [b["model"] for b in fake.chats()] == ["test-model:latest"]
+
+
+async def test_embedding_with_a_remote_embedding_model_is_refused(make_settings):
+    fake = FakeOllama(tags=[tag("test-model:latest"), tag("qwen3-embedding:0.6b", **REMOTE)])
+    p = provider(make_settings(), fake)
+    with pytest.raises(RemoteModelRefused, match="qwen3-embedding:0.6b"):
+        await p.embed(["private document text"])
+    assert [path for path, _ in fake.requests if path == "/api/embed"] == []
+
+
+async def test_model_info_reports_where_a_remote_model_runs(make_settings):
+    p = provider(make_settings(), FakeOllama(tags=[tag("test-model:latest", **REMOTE)]))
+    info = await p.model_info()
+    assert info.remote is True and info.remote_host == "https://ollama.com:443"
+    local = await provider(make_settings(), FakeOllama()).model_info()
+    assert local.remote is False and local.remote_host is None

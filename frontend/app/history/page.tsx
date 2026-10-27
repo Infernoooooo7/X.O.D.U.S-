@@ -68,7 +68,7 @@ export default function History() {
       )}
       <ul className="space-y-2">
         {rows.map((c) => (
-          <li key={c.id} className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+          <li key={c.id} className="flex flex-col gap-3 panel p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="eyebrow">updated {ago(c.updated_at)}, {c.messages} {c.messages === 1 ? "message" : "messages"}</p>
               <h2 className="mt-0.5 text-base font-semibold [overflow-wrap:anywhere]">

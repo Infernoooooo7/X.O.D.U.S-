@@ -49,6 +49,12 @@ class InvalidStructuredOutput(ProviderError):
     code = "invalid_structured_output"
 
 
+class RemoteModelRefused(ProviderError):
+    """The model would run on another computer (the provider forwards requests there); XODUS uses local models only."""
+
+    code = "remote_model_refused"
+
+
 @dataclass(frozen=True)
 class RequestBudget:
     num_ctx: int
@@ -121,6 +127,8 @@ class ModelInfo:
     declared: list[str]
     confirmed: list[str]
     embedding_length: int | None = None  # native vector size of an embedding model
+    remote: bool = False  # the provider forwards this model's requests to another computer
+    remote_host: str | None = None
 
     def public(self) -> dict[str, Any]:
         return asdict(self)

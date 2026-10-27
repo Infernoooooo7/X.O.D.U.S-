@@ -35,6 +35,9 @@ note = "does not fit"
 id = "pinned"
 model = "other-model:latest"
 expected_digest_prefix = "zzz"
+[[models.profiles]]
+id = "aliased"
+model = "alias-model:latest"
 """
 MB = 10**6
 
@@ -59,7 +62,10 @@ class FakeNvml:
 def fake(fake_ollama):
     fake_ollama.models = [{"name": "test-model:latest", "digest": "aaa111", "size": 2},
                           {"name": "other-model:latest", "digest": "bbb222", "size": 1},
-                          {"name": "fake-embed:latest", "digest": "def", "size": 1}]
+                          {"name": "fake-embed:latest", "digest": "def", "size": 1},
+                          # a local name for a model Ollama runs elsewhere (`ollama cp gpt-oss:120b-cloud alias-model`)
+                          {"name": "alias-model:latest", "digest": "ccc333", "size": 384,
+                           "remote_model": "gpt-oss:120b", "remote_host": "https://ollama.com:443"}]
     fake_ollama.vram_per_model = 1000 * MB
     return fake_ollama
 
@@ -98,6 +104,7 @@ def test_profiles_are_listed_with_installation_and_load_state(client, fake):
     assert rows["missing"]["installed"] is False and rows["off"]["enabled"] is False
     assert rows["pinned"]["digest_ok"] is False and rows["default"]["digest_ok"] is None  # no pin on the test default
     assert rows["other"]["measured_vram_mib"] is None  # nothing is claimed before a switch was measured
+    assert rows["aliased"]["remote"] is True and rows["other"]["remote"] is False and rows["missing"]["remote"] is None
     assert body["ollama_reachable"] and {r["name"] for r in body["running"]} == {"test-model:latest"}
 
 
@@ -136,6 +143,7 @@ def test_a_context_size_profile_changes_num_ctx_for_chat_and_tasks(client, fake)
     ("off", "profile_disabled", 409, "does not fit"),
     ("pinned", "digest_mismatch", 409, "does not match the pinned zzz"),
     ("default", "already_active", 409, "already the active profile"),
+    ("aliased", "remote_model", 409, "does not run on this computer (Ollama forwards it to https://ollama.com:443)"),
 ])
 def test_refusals_change_nothing_and_are_recorded(client, fake, profile, code, status, words):
     c = client()

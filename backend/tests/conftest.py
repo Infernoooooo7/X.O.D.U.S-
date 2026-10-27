@@ -36,6 +36,15 @@ dir = "{plugins}"
 """
 
 
+@pytest.fixture(autouse=True)
+def _ollama_server_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fake Ollama servers listen inside this pytest process, so /api/health's Ollama environment check reads this
+    process's environment: give it what scripts/start-ollama.ps1 sets. Tests that need a bad setting change it."""
+    monkeypatch.setenv("OLLAMA_NO_CLOUD", "1")
+    monkeypatch.delenv("OLLAMA_REMOTES", raising=False)
+    monkeypatch.delenv("OLLAMA_ORIGINS", raising=False)
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))

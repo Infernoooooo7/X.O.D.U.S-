@@ -58,10 +58,21 @@ export const del = <T>(path: string) => api<T>(path, { method: "DELETE" });
 export type Health = {
   backend: { status: string; version: string; uptime_s: number };
   ollama: { status: string; model: string; message?: string; digest?: string; ollama_version?: string };
+  ollama_environment: OllamaEnvironment;
   models: { active: string; switching: string | null; num_ctx: number };
   envelope: { max_running: number; max_queued: number; running: number; queued: number };
   measurement: { nvml: string; gpu_counters: string };
   knowledge: { embedding: { status: string; model: string; message?: string }; ingestion: IngestionStatus };
+};
+
+/** How the running Ollama server was started, read by the backend from the process itself (not a promise that
+ *  Ollama never contacts the internet: only these checks were made). */
+export type OllamaEnvironment = {
+  status: "ok" | "problem" | "unknown";
+  pid: number | null;
+  message: string;
+  fix: string | null;
+  checks: { id: "loopback" | "no_cloud" | "remotes" | "origins"; ok: boolean | null; detail: string }[];
 };
 
 export type IngestionStatus = {

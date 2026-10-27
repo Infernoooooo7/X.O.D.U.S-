@@ -39,7 +39,7 @@ export default function Approvals() {
             {decided.map((a) => {
               const st = APPROVAL_STATUS[a.status] ?? { label: a.status, tone: "neutral" as const };
               return (
-                <li key={a.id} className="flex flex-col gap-1 rounded-md border border-border bg-card p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <li key={a.id} className="flex flex-col gap-1 panel p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <span className="min-w-0"><code>{a.capability_id}</code> for task <code>{a.task_id}</code>, step {a.step_index}, {ago(a.created_at)}</span>
                   <Status tone={st.tone}>{st.label}</Status>
                 </li>
@@ -60,7 +60,7 @@ function PendingCard({ a, n, onDone }: { a: Approval; n: number; onDone: () => v
   };
   const left = countdown(a.expires_at, now);
   return (
-    <li className="rounded-md border border-warn/50 bg-card p-4">
+    <li className="panel attention border-warn/50 p-4">
       <div className="flex items-baseline gap-3">
         <span className="card-number">{String(n).padStart(2, "0")}</span>
         <span className="eyebrow">task {a.task_id}</span>

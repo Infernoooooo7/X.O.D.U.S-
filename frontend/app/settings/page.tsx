@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { usePoll } from "@/lib/hooks";
+import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { ErrorNote, Facts, JsonView, Note, PageHeader, Section, Tag } from "@/components/xodus/parts";
 
 type SettingsView = {
@@ -13,41 +13,24 @@ type SettingsView = {
   data_dir: string; log_dir: string; effective: unknown;
 };
 
-type Theme = "system" | "light" | "dark";
-
-function applyTheme(theme: Theme) {
-  const dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.classList.toggle("dark", dark);
-}
-
 export default function Settings() {
   const s = usePoll(() => api<SettingsView>("/api/settings"), 0);
-  const [theme, setTheme] = useState<Theme>("system");
-
-  useEffect(() => {
-    try { setTheme((localStorage.getItem("xodus-theme") as Theme) || "system"); } catch { /* storage unavailable */ }
-  }, []);
-
-  function choose(t: Theme) {
-    setTheme(t);
-    try { if (t === "system") localStorage.removeItem("xodus-theme"); else localStorage.setItem("xodus-theme", t); } catch { /* per-browser only */ }
-    applyTheme(t);
-  }
+  const { choice: theme, set: choose } = useTheme();
 
   const v = s.data;
   return (
     <>
       <PageHeader number="11" title="Settings" lead="How this XODUS is configured. Configuration is read-only here: permissions are never granted from a web page." />
 
-      <section aria-labelledby="appearance" className="rounded-md border border-border bg-card p-4">
+      <section aria-labelledby="appearance" className="panel p-4 sm:p-5">
         <h2 id="appearance" className="text-lg font-semibold">Appearance</h2>
         <fieldset className="mt-2">
-          <legend className="text-sm text-muted-foreground">Theme (saved in this browser only)</legend>
+          <legend className="text-sm text-muted-foreground">Theme (saved in this browser only; also on the top bar and in Ctrl+K)</legend>
           <div className="mt-2 flex flex-wrap gap-4">
-            {(["system", "light", "dark"] as Theme[]).map((t) => (
+            {(["dark", "light", "system"] as ThemeChoice[]).map((t) => (
               <label key={t} className="flex items-center gap-2 text-sm">
                 <input type="radio" name="theme" value={t} checked={theme === t} onChange={() => choose(t)} className="size-4 accent-[var(--primary)]" />
-                {t === "system" ? "Follow Windows" : t === "light" ? "Light" : "Dark"}
+                {t === "system" ? "Follow Windows" : t === "light" ? "Light" : "Dark (default)"}
               </label>
             ))}
           </div>
@@ -61,7 +44,7 @@ export default function Settings() {
           <Section title="Folders and grants" id="roots" description="The only places capabilities may touch, and what they may do there.">
             <ul className="space-y-2">
               {v.roots.map((r) => (
-                <li key={r.id} className="rounded-md border border-border bg-card p-3 text-sm">
+                <li key={r.id} className="panel p-3 text-sm">
                   <p className="font-medium">{r.id} {r.grants.map((g) => <Tag key={g}>{g === "fs.read" ? "read" : "write, with approval"}</Tag>)}</p>
                   <p className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">{r.path}</p>
                 </li>

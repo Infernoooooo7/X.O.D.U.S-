@@ -65,6 +65,12 @@ cd backend; uv run python -m xodus    # backend + UI on http://127.0.0.1:8765
 Open http://127.0.0.1:8765. Stop with Ctrl+C, then run `scripts\stop-ollama.ps1`, which also stops
 Ollama's runner processes.
 
+XODUS uses local models only. It refuses Ollama cloud models (`-cloud` tags) in the configuration, and any model
+Ollama would run on another computer (including a local alias of one) before sending it anything. The backend also
+reads how the running Ollama server was started and shows a warning if it listens beyond loopback, lacks
+`OLLAMA_NO_CLOUD=1`, has `OLLAMA_REMOTES` set or has a wildcard in `OLLAMA_ORIGINS`. Starting Ollama with
+`scripts\start-ollama.ps1` sets all of these. The check reports, it does not lock (see `docs/THREAT_MODEL.md`).
+
 ## Using the knowledge base (Gate D)
 
 Needs the embedding model once: `ollama pull qwen3-embedding:0.6b` (639 MB). Documents come from the folders listed in
@@ -112,6 +118,7 @@ grants = ["kb.read"]
 | `GET /api/audit?limit&before&event` | The audit log, newest first, paginated |
 | `GET /api/experiments`, `/api/experiments/file?path=` | Read-only results from `experiments/results/` |
 | `GET /api/settings`, `GET /api/extensions` | Effective configuration (read-only); plugin and MCP inventory with processes |
+| `GET /api/health` → `ollama_environment` | How the running Ollama server was started: loopback, `OLLAMA_NO_CLOUD`, `OLLAMA_REMOTES`, `OLLAMA_ORIGINS` (`ok`, `problem` or `unknown`) |
 
 ## API (Gate D additions)
 

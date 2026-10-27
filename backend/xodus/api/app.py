@@ -39,6 +39,8 @@ from xodus.orchestrator.task import TaskLog
 from xodus.orchestrator.tasks import TaskLimit, TaskManager
 from xodus.providers import build_provider
 from xodus.providers.base import ModelProvider, ProviderError, RequestBudget, estimate_tokens
+from xodus.providers.ollama import remote_model_error
+from xodus.providers.ollama_env import check_ollama_environment
 from xodus.providers.profiles import ModelManager, SwitchLog
 from xodus.resources.admission import AdmissionGate, QueueFull
 from xodus.resources.sampler import Nvml, ResourceSampler, mib
@@ -228,7 +230,8 @@ def create_app(
     embedding_status: dict[str, Any] = {"status": "unchecked", "model": settings.ollama.embed_model,
                                         "configured_dimensions": settings.embedding.dimensions,
                                         "num_gpu": settings.embedding.num_gpu}
-    sampler = sampler or ResourceSampler(ollama_port=urlparse(settings.ollama.base_url).port or 11434, supervisor=supervisor)
+    ollama_port = urlparse(settings.ollama.base_url).port or 11434
+    sampler = sampler or ResourceSampler(ollama_port=ollama_port, supervisor=supervisor)
 
     def generation_busy() -> str | None:
         active = [t for t in tasks.list() if not t.terminal]
@@ -259,6 +262,7 @@ def create_app(
             version=__version__,
             bind=f"{settings.server.host}:{settings.server.port}",
             ollama=await provider.health(),
+            ollama_environment=await asyncio.to_thread(check_ollama_environment, ollama_port),
             model_probe=info,
             measurement={"nvml": sampler.nvml.error or "ok", "gpu_counters": sampler.gpu.error or "ok"},
             capabilities=registry.available_ids(),
@@ -305,7 +309,9 @@ def create_app(
             embedding_status.update(status="unavailable", code=exc.code, message=exc.message)
             return
         native = info.embedding_length
-        if native is None:
+        if info.remote:
+            embedding_status.update(status="remote_model", message=remote_model_error(info.name, info.remote_host).message)
+        elif native is None:
             embedding_status.update(status="unverified", message="The provider did not report the embedding size.")
         elif native < settings.embedding.dimensions:
             embedding_status.update(status="dimension_mismatch", native_dimensions=native,
@@ -338,6 +344,7 @@ def create_app(
         return {
             "backend": {"status": "ok", "version": __version__, "uptime_s": round(time.time() - started_at, 1)},
             "ollama": await provider.health(),
+            "ollama_environment": await asyncio.to_thread(check_ollama_environment, ollama_port),
             "model_capabilities": {"declared": sorted(settings.ollama.capabilities),
                                    "confirmed": sorted(confirmed) if confirmed is not None else None},
             "envelope": {"max_running": admission.max_running, "max_queued": admission.max_queued,

@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "start": "npm run backend",
+    "backend": "cd backend && uv run python -m xodus",
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
     "typecheck": "npm --prefix frontend run typecheck",

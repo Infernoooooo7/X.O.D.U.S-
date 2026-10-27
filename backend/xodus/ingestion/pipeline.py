@@ -24,7 +24,7 @@ from xodus.config.settings import Settings
 from xodus.ingestion.chunking import CHUNKER_VERSION, ChunkParams, chunk_blocks
 from xodus.ingestion.parsers import Limits, ParseError, SourceInfo, hash_file, inspect_file, iter_blocks
 from xodus.ingestion.text import Block
-from xodus.providers.base import ModelNotAvailable, ProviderError, ProviderTimeout, ProviderUnavailable
+from xodus.providers.base import ModelNotAvailable, ProviderError, ProviderTimeout, ProviderUnavailable, RemoteModelRefused
 from xodus.providers.ollama import EmbeddingDimensionError
 from xodus.security.paths import PathViolation, resolve_existing
 from xodus.storage.knowledge import ChunkRecord, CorpusLimitExceeded, KnowledgeStore, LeaseLost, NotFound
@@ -101,6 +101,8 @@ def _embed(d: PipelineDeps, texts: list[str]) -> list[list[float]]:
             raise IngestError("embedding_model_missing", exc.message, retryable=True) from exc
         except EmbeddingDimensionError as exc:
             raise IngestError("embedding_dimension_mismatch", exc.message) from exc
+        except RemoteModelRefused as exc:  # retrying cannot help until the configuration names a local model
+            raise IngestError("embedding_model_remote", exc.message) from exc
         except ProviderError as exc:
             raise IngestError("embedding_error", exc.message, retryable=True) from exc
     raise AssertionError("unreachable")  # pragma: no cover

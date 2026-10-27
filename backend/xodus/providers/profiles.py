@@ -8,7 +8,8 @@ else. Nothing is written to the configuration files: a restart returns to the de
 Switching follows resource rule 4: refuse while anything is generating; unload the current model (keep_alive 0) and
 wait until Ollama has dropped it; confirm free VRAM against the target's measured footprint; load; warm up. The
 single model slot of the admission gate is held for the whole switch, so no chat or task can call the model
-half-way through. XODUS never downloads a model: a profile whose model is not installed cannot be switched to.
+half-way through. XODUS never downloads a model: a profile whose model is not installed cannot be switched to, and
+neither can one whose model Ollama would run on another computer.
 Every attempt, including refusals, is recorded in model_switches and the audit log.
 """
 
@@ -23,6 +24,7 @@ from typing import Any
 from xodus.config.settings import OllamaSettings, Settings
 from xodus.obs import log_event
 from xodus.providers.base import ModelProvider, ProviderError, RequestBudget
+from xodus.providers.ollama import find_model, is_remote_model, remote_model_error
 from xodus.resources.admission import AdmissionGate, QueueFull
 from xodus.resources.sampler import Nvml, mib
 from xodus.security.audit import AuditLog
@@ -141,6 +143,7 @@ class ModelManager:
             rows.append({
                 **asdict(p), "capabilities": list(p.capabilities), "active": p.id == self.active_id,
                 "installed": None if installed is None else found is not None,
+                "remote": is_remote_model(found) if found else None,
                 "digest": digest,
                 "digest_ok": None if not (digest and p.expected_digest_prefix) else digest.startswith(p.expected_digest_prefix),
                 "size_bytes": found.get("size") if found else None,
@@ -216,10 +219,12 @@ class ModelManager:
                 models = await self.provider.list_models()
             except ProviderError as exc:
                 raise await refuse("provider_unavailable", exc.message, 503) from exc
-            found = next((m for m in models if target.model in (m.get("name"), m.get("model"))), None)
+            found = find_model(models, target.model)
             if found is None:
                 raise await refuse("not_installed", f"{target.model} is not installed in Ollama. XODUS never downloads models; "
                                                     f"to use this profile run: ollama pull {target.model}")
+            if is_remote_model(found):
+                raise await refuse("remote_model", remote_model_error(target.model, found.get("remote_host") or None).message)
             digest = found.get("digest") or ""
             if target.expected_digest_prefix and not digest.startswith(target.expected_digest_prefix):
                 raise await refuse("digest_mismatch", f"Installed digest {digest[:12]} does not match the pinned "

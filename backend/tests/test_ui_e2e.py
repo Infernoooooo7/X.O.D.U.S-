@@ -107,6 +107,16 @@ def axe(page, label: str) -> None:
     assert violations == [], json.dumps(violations, indent=1)
 
 
+def system_status(page):
+    """The sidebar card's live health lines (the workspace core has its own status line, which also mentions Ollama)."""
+    return page.get_by_role("region", name="System status").get_by_role("status")
+
+
+def core(page):
+    """The workspace core: its data-core-state names the state the page derived from the backend."""
+    return page.locator("[data-core-state]").first
+
+
 def kb_toml_settings(kb_settings, fake_ollama, extra: str = ""):
     return kb_settings(extra=extra, base_url=fake_ollama.url)
 
@@ -178,10 +188,47 @@ def test_ollama_down_shows_a_clear_error_and_the_backend_stays_up(page, make_set
         expect(alert).to_contain_text("The backend is still running")
         expect(alert).to_contain_text("provider_unavailable")
         if page.viewport_name == "desktop":
-            expect(page.get_by_role("status").filter(has_text="ollama")).to_contain_text("unreachable")
+            expect(system_status(page)).to_contain_text("unreachable")
+        expect(core(page)).to_have_attribute("data-core-state", "offline")
+        expect(page.get_by_text("Ollama is not reachable", exact=True)).to_be_visible()
         page.goto(url + "/capabilities/")  # the rest of XODUS keeps working
         expect(page.get_by_role("heading", name="List files")).to_be_visible()
         shot(page, "ollama-down")
+
+
+def test_unsafe_ollama_settings_are_shown_until_they_are_fixed(page, make_settings, fake, monkeypatch):
+    """The fake Ollama listens inside this process, so the backend reads this process's environment as Ollama's."""
+    monkeypatch.delenv("OLLAMA_NO_CLOUD")
+    monkeypatch.setenv("OLLAMA_ORIGINS", "*")
+    with serve(create_app(make_settings(base_url=fake.url))) as url:
+        page.goto(url)
+        alert = page.get_by_role("alert").filter(has_text="OLLAMA_NO_CLOUD is not set")
+        expect(alert).to_be_visible(timeout=10_000)
+        expect(alert).to_contain_text("OLLAMA_ORIGINS contains a wildcard (*)")
+        expect(alert).to_contain_text("scripts\\start-ollama.ps1")
+        if page.viewport_name == "desktop":
+            expect(system_status(page)).to_contain_text("Ollama settings unsafe")
+        no_horizontal_scroll(page)
+        shot(page, "ollama-settings-unsafe")
+        axe(page, "ollama-settings-unsafe")
+        monkeypatch.setenv("OLLAMA_NO_CLOUD", "1")
+        monkeypatch.delenv("OLLAMA_ORIGINS")
+        expect(alert).to_have_count(0, timeout=12_000)  # the shell polls health every 5 s
+        if page.viewport_name == "desktop":
+            expect(system_status(page)).to_contain_text("Ollama settings checked")
+
+
+def test_a_model_that_runs_elsewhere_is_named_and_refused(page, make_settings, fake):
+    fake.models[0] = {**fake.models[0], "remote_model": "gpt-oss:120b", "remote_host": "https://ollama.com:443"}
+    with serve(create_app(make_settings(base_url=fake.url))) as url:
+        page.goto(url)
+        alert = page.get_by_role("alert").filter(has_text="does not run on this computer")
+        expect(alert).to_be_visible(timeout=10_000)
+        expect(alert).to_contain_text("test-model:latest")
+        page.get_by_label("Message").fill("Hello?")
+        page.get_by_role("button", name="Send").click()
+        expect(page.get_by_role("alert").filter(has_text="remote_model_refused")).to_be_visible(timeout=15_000)
+        assert fake.chat_requests == []  # nothing was sent to the model
 
 
 # ---------------------------------------------------------------------------------------------- knowledge
@@ -248,6 +295,8 @@ def test_a_task_waits_for_approval_and_completes_only_after_it(page, make_settin
         expect(timeline).to_contain_text("cannot be undone")
         expect(page.get_by_role("link", name=re.compile("1 action is waiting for your approval"))).to_be_visible()
         expect(timeline.get_by_role("status").first).not_to_have_text("Completed")
+        expect(core(page)).to_have_attribute("data-core-state", "waiting")  # the core says what the task says
+        expect(page.get_by_role("group", name="Approval needed for step 1")).to_be_focused()  # the decision has the keyboard
         assert not (notes / "hello.txt").exists()  # nothing happened before approval
         no_horizontal_scroll(page)
         shot(page, "approval-pending")
@@ -258,6 +307,7 @@ def test_a_task_waits_for_approval_and_completes_only_after_it(page, make_settin
         expect(timeline).to_contain_text("I wrote hello.txt.")
         assert (notes / "hello.txt").read_text(encoding="utf-8") == "Hi from XODUS"
         expect(page.get_by_text("The task is paused until you decide.")).to_have_count(0)
+        expect(core(page)).to_have_attribute("data-core-state", "idle")
         shot(page, "approval-done")
 
 
@@ -410,6 +460,7 @@ def test_list_files_refuses_an_escape(page, make_settings, fake):
 def test_every_view_passes_axe_and_fits_the_width(browser, make_settings, fake, view, scheme):
     for name, size in VIEWPORTS.items():
         ctx = browser.new_context(viewport=size, color_scheme=scheme)
+        ctx.add_init_script(f"localStorage.setItem('xodus-theme', '{scheme}')")  # dark is the default whatever the OS says
         pg = ctx.new_page()
         pg.viewport_name = f"{name}-{scheme}"
         with serve(create_app(make_settings(extra=MODEL_PROFILES, base_url=fake.url))) as url:
@@ -438,6 +489,142 @@ def test_keyboard_and_mobile_navigation(browser, make_settings, fake):
         pg.get_by_role("dialog").get_by_role("link", name=re.compile("Knowledge")).click()
         expect(pg.get_by_role("heading", level=1, name="Knowledge")).to_be_visible()
         assert pg.url.endswith("/knowledge/")
+        ctx.close()
+
+
+# ---------------------------------------------------------------------------------------------- core, motion, palette, theme
+
+INK = """() => { const c = document.querySelector('[data-core-state] canvas'); const d = c.getContext('2d')
+    .getImageData(0, 0, c.width, c.height).data; let s = 0; for (let i = 3; i < d.length; i += 4) s += d[i]; return s; }"""
+
+
+def test_the_core_follows_real_states_only(page, make_settings, fake):
+    fake.chat_answer = lambda messages: "one two three four five six seven eight"
+    fake.chat_delay_s = 1.5  # nothing has arrived yet: thinking
+    fake.chat_word_delay_s = 0.3  # then the words arrive one by one: writing
+    with serve(create_app(make_settings(base_url=fake.url))) as url:
+        page.goto(url)
+        expect(core(page)).to_have_attribute("data-core-state", "idle", timeout=10_000)
+        expect(page.get_by_role("status").filter(has_text="Ready")).to_be_visible()
+        expect(core(page)).to_have_attribute("data-animating", "true")
+        shot(page, "workspace-hero")
+        page.get_by_label("Message").fill("Count to eight.")
+        page.get_by_role("button", name="Send").click()
+        expect(core(page)).to_have_attribute("data-core-state", "thinking")
+        expect(page.get_by_text("Waiting for the first token")).to_be_visible()
+        expect(core(page)).to_have_attribute("data-core-state", "streaming", timeout=10_000)
+        expect(page.get_by_text("Writing", exact=True)).to_be_visible()
+        shot(page, "workspace-streaming")
+        expect(core(page)).to_have_attribute("data-core-state", "idle", timeout=15_000)  # only after the backend's "done"
+        expect(page.get_by_role("article").filter(has_text="one two three four five six seven eight")).to_be_visible()
+        assert page.evaluate(INK) > 0
+
+
+def test_reduced_motion_keeps_the_core_still_and_says_the_state_in_words(browser, make_settings, fake):
+    fake.chat_answer = lambda messages: "still here"
+    fake.chat_delay_s = 1.5
+    with serve(create_app(make_settings(base_url=fake.url))) as url:
+        ctx = browser.new_context(viewport=VIEWPORTS["desktop"], reduced_motion="reduce")
+        pg = ctx.new_page()
+        pg.goto(url)
+        expect(core(pg)).to_have_attribute("data-core-state", "idle", timeout=10_000)
+        pg.wait_for_timeout(600)
+        expect(core(pg)).to_have_attribute("data-animating", "false")  # the frame loop never started
+        assert pg.evaluate(INK) > 0  # one still frame was drawn instead
+        assert pg.evaluate("() => parseFloat(getComputedStyle(document.querySelector('.enter')).animationDuration)") < 0.001
+        pg.get_by_label("Message").fill("Hello?")
+        pg.get_by_role("button", name="Send").click()
+        expect(core(pg)).to_have_attribute("data-core-state", "thinking")
+        expect(core(pg)).to_have_attribute("data-animating", "false")
+        expect(pg.get_by_text("Waiting for the first token")).to_be_visible()
+        expect(pg.get_by_role("article").filter(has_text="still here")).to_be_visible(timeout=15_000)
+        ctx.close()
+
+
+def test_the_core_stops_drawing_when_it_is_scrolled_out_of_view(browser, make_settings, fake):
+    with serve(create_app(make_settings(base_url=fake.url))) as url:
+        ctx = browser.new_context(viewport={"width": 1280, "height": 420})
+        pg = ctx.new_page()
+        pg.goto(url)
+        expect(core(pg)).to_have_attribute("data-animating", "true", timeout=10_000)
+        pg.evaluate("() => window.scrollTo(0, document.documentElement.scrollHeight)")
+        expect(core(pg)).to_have_attribute("data-animating", "false")
+        pg.evaluate("() => window.scrollTo(0, 0)")
+        expect(core(pg)).to_have_attribute("data-animating", "true")
+        ctx.close()
+
+
+def html_dark(page) -> bool:
+    return "dark" in (page.locator("html").get_attribute("class") or "")
+
+
+def test_command_palette_navigates_and_runs_real_actions(page, make_settings, fake):
+    with serve(create_app(make_settings(base_url=fake.url))) as url:
+        page.goto(url)
+        expect(core(page)).to_have_attribute("data-core-state", "idle", timeout=10_000)
+        assert html_dark(page)  # dark is the default
+        page.keyboard.press("Control+k")
+        dialog = page.get_by_role("dialog", name="Command palette")
+        box = dialog.get_by_role("combobox", name="Search views and actions")
+        expect(box).to_be_focused()
+        shot(page, "command-palette")
+        axe(page, "command-palette")
+        box.fill("knowledge")
+        expect(dialog.get_by_role("option").first).to_have_attribute("aria-selected", "true")
+        page.keyboard.press("Enter")
+        expect(page.get_by_role("heading", level=1, name="Knowledge")).to_be_visible()
+        expect(dialog).to_have_count(0)
+
+        page.keyboard.press("Control+k")  # an action with a real effect, confirmed by the backend
+        box.fill("pause ingestion")
+        page.keyboard.press("Enter")
+        expect(dialog.get_by_role("status")).to_contain_text("Background ingestion paused.")
+        assert page.request.get(url + "/api/health").json()["knowledge"]["ingestion"]["paused"] is True
+        box.fill("resume")
+        page.keyboard.press("Enter")
+        expect(dialog.get_by_role("status")).to_contain_text("Background ingestion resumed.")
+        assert page.request.get(url + "/api/health").json()["knowledge"]["ingestion"]["paused"] is False
+        box.fill("verify audit")
+        page.keyboard.press("Enter")
+        expect(dialog.get_by_role("status")).to_contain_text("The audit log is intact")
+
+        box.fill("")  # arrow keys move the choice; Escape closes
+        page.keyboard.press("ArrowDown")
+        expect(dialog.get_by_role("option").nth(1)).to_have_attribute("aria-selected", "true")
+        page.keyboard.press("Escape")
+        expect(dialog).to_have_count(0)
+
+        page.keyboard.press("Control+k")  # the theme, kept across a reload, and the top-bar toggle
+        box.fill("light theme")
+        page.keyboard.press("Enter")
+        assert not html_dark(page)
+        page.reload()
+        expect(page.get_by_role("heading", level=1, name="Knowledge")).to_be_visible()
+        assert not html_dark(page)
+        page.get_by_role("button", name="Switch to dark theme").click()
+        assert html_dark(page)
+
+
+def test_keyboard_only_chat_from_the_palette(browser, make_settings, fake):
+    fake.chat_answer = lambda messages: "Typed and sent without a mouse."
+    with serve(create_app(make_settings(base_url=fake.url))) as url:
+        ctx = browser.new_context(viewport=VIEWPORTS["desktop"])
+        pg = ctx.new_page()
+        pg.goto(url + "/history/")
+        expect(pg.get_by_role("heading", level=1, name="History")).to_be_visible()
+        pg.keyboard.press("Control+k")
+        pg.keyboard.type("ask your documents")
+        pg.keyboard.press("Enter")  # from another view: opens the workspace in that mode, in the message box
+        expect(pg.get_by_label("Message")).to_be_focused()
+        expect(pg.locator("label").filter(has_text="Ask documents").locator("input")).to_be_checked()
+        pg.keyboard.press("Control+k")
+        pg.keyboard.type("chat with")
+        pg.keyboard.press("Enter")  # in the workspace: switches the mode and puts the cursor back in the box
+        expect(pg.get_by_label("Message")).to_be_focused()
+        expect(pg.locator("label").filter(has_text="Chat").locator("input")).to_be_checked()
+        pg.keyboard.type("Hello from the keyboard.")
+        pg.keyboard.press("Control+Enter")
+        expect(pg.get_by_role("article").filter(has_text="Typed and sent without a mouse.")).to_be_visible(timeout=15_000)
         ctx.close()
 
 

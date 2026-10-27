@@ -10,7 +10,7 @@ import { Empty, ErrorNote, Facts, NumberedCard, Note, PageHeader, Section, Statu
 
 type Profile = {
   id: string; label: string; model: string; expected_digest_prefix: string | null; capabilities: string[]; num_ctx: number;
-  enabled: boolean; note: string; active: boolean; installed: boolean | null; digest: string | null; digest_ok: boolean | null;
+  enabled: boolean; note: string; active: boolean; installed: boolean | null; remote: boolean | null; digest: string | null; digest_ok: boolean | null;
   size_bytes: number | null; loaded: boolean; loaded_size_vram: number | null; measured_vram_mib: number | null;
   measured_at: number | null; measured_num_ctx: number | null;
 };
@@ -63,15 +63,17 @@ export default function ModelsView() {
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         {(m?.profiles ?? []).map((p, i) => {
           const blocked = p.active ? "This is the active profile." : !p.enabled ? `Disabled in the configuration. ${p.note}`
-            : p.installed === false ? `Not installed. To use it, run: ollama pull ${p.model}` : p.installed === null ? "Ollama is not reachable." : null;
+            : p.installed === false ? `Not installed. To use it, run: ollama pull ${p.model}` : p.installed === null ? "Ollama is not reachable."
+            : p.remote ? "Ollama would run this model on another computer. XODUS uses local models only, so it cannot be switched to." : null;
           return (
             <NumberedCard key={p.id} number={String(i + 1).padStart(2, "0")} eyebrow={<>profile {p.id}</>} title={p.label}
               subtitle={<><code>{p.model}</code>, context {p.num_ctx.toLocaleString()} tokens</>}
-              className={p.active ? "border-primary" : undefined}
+              className={p.active ? "glow-ring border-primary/60" : undefined}
               tags={<>
                 {p.active && <Status tone="good">Active</Status>}
                 {p.loaded && <Tag>loaded in Ollama</Tag>}
                 {p.installed === false && <Tag>not installed</Tag>}
+                {p.remote && <Tag>runs elsewhere: refused</Tag>}
                 {!p.enabled && <Tag>disabled</Tag>}
                 {p.capabilities.map((c) => <Tag key={c}>{c}</Tag>)}
               </>}
@@ -103,7 +105,7 @@ export default function ModelsView() {
         {(m?.recent_switches ?? []).length === 0 ? <Empty title="No switch attempted yet" /> : (
           <ol className="space-y-2">
             {m!.recent_switches.map((s) => (
-              <li key={s.id} className="rounded-md border border-border bg-card p-3 text-sm">
+              <li key={s.id} className="panel p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{s.from_profile} to {s.to_profile}</span>
                   <Status tone={s.outcome === "switched" ? "good" : s.outcome === "refused" ? "wait" : "bad"}>{s.outcome}</Status>

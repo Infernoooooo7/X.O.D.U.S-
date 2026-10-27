@@ -7,13 +7,19 @@ import type { Tone } from "@/lib/status";
 
 export function PageHeader({ number, title, lead, children }: { number: string; title: string; lead: string; children?: ReactNode }) {
   return (
-    <header className="mb-6 flex flex-col gap-3 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0">
-        <p className="card-number" aria-hidden="true">{number}</p>
-        <h1 className="text-[1.75rem] font-semibold tracking-[-0.01em] sm:text-[2.2rem]">{title}</h1>
-        <p className="mt-1 max-w-[62ch] text-muted-foreground">{lead}</p>
+    <header className="enter mb-7">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2" aria-hidden="true">
+            <span className="card-number text-primary">{number}</span>
+            <span className="h-px w-8 bg-gradient-to-r from-primary/70 to-transparent" />
+          </p>
+          <h1 className="display mt-2 text-[2.1rem] sm:text-[2.75rem]">{title}</h1>
+          <p className="mt-2 max-w-[64ch] text-muted-foreground">{lead}</p>
+        </div>
+        {children && <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>}
       </div>
-      {children && <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>}
+      <hr className="hairline mt-6" />
     </header>
   );
 }
@@ -27,12 +33,12 @@ export function NumberedCard({
 } & React.HTMLAttributes<HTMLElement>) {
   const H = headingLevel === 2 ? "h2" : "h3";
   return (
-    <article className={cn("rounded-md border border-border bg-card p-4 text-card-foreground sm:p-5", className)} {...rest}>
+    <article className={cn("panel panel-hover p-4 sm:p-5", className)} {...rest}>
       <div className="flex items-baseline gap-3">
-        {number && <span className="card-number" aria-hidden="true">{number}</span>}
+        {number && <span className="card-number text-primary" aria-hidden="true">{number}</span>}
         {eyebrow && <span className="eyebrow min-w-0 truncate">{eyebrow}</span>}
       </div>
-      <H className="mt-1 text-lg font-semibold leading-snug">{title}</H>
+      <H className="mt-1.5 text-lg font-semibold leading-snug">{title}</H>
       {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
       {children && <div className="mt-3 text-sm">{children}</div>}
       {(tags || action) && (
@@ -64,15 +70,15 @@ export function Tag({ children, title }: { children: ReactNode; title?: string }
 
 const TONE: Record<Tone, string> = {
   neutral: "border-border bg-muted text-foreground",
-  active: "border-primary/40 bg-accent text-accent-foreground",
-  wait: "border-warn/50 bg-warn-soft text-warn",
+  active: "border-primary/45 bg-accent text-accent-foreground shadow-[0_0_14px_-4px_rgb(var(--glow)/0.6)]",
+  wait: "border-warn/50 bg-warn-soft text-warn shadow-[0_0_14px_-5px_rgb(var(--warn-rgb)/0.6)]",
   good: "border-ok/40 bg-card text-ok",
-  bad: "border-destructive/40 bg-destructive-soft text-destructive",
+  bad: "border-destructive/45 bg-destructive-soft text-destructive",
 };
 
 export function Status({ tone, children, title }: { tone: Tone; children: ReactNode; title?: string }) {
   return (
-    <span title={title} className={cn("inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium", TONE[tone])}>
+    <span title={title} className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors", TONE[tone])}>
       <span aria-hidden="true" className={cn("size-1.5 rounded-full bg-current", tone === "active" && "animate-pulse")} />
       {children}
     </span>
@@ -83,7 +89,7 @@ export function Status({ tone, children, title }: { tone: Tone; children: ReactN
 export function ErrorNote({ error, title, hint }: { error: ApiError | { code: string; message: string } | null; title?: string; hint?: ReactNode }) {
   if (!error) return null;
   return (
-    <div role="alert" className="mt-3 rounded-md border border-destructive/40 bg-destructive-soft px-3 py-2 text-sm text-destructive">
+    <div role="alert" className="enter mt-3 rounded-lg border border-destructive/40 border-l-2 border-l-destructive bg-destructive-soft px-3 py-2 text-sm text-destructive">
       {title && <p className="font-semibold">{title}</p>}
       <p className="text-foreground">{error.message}</p>
       <p className="mt-1 font-mono text-xs">code {error.code}</p>
@@ -94,8 +100,8 @@ export function ErrorNote({ error, title, hint }: { error: ApiError | { code: st
 
 export function Note({ children, tone = "neutral", role }: { children: ReactNode; tone?: "neutral" | "wait"; role?: string }) {
   return (
-    <div role={role} className={cn("rounded-md border px-3 py-2 text-sm",
-      tone === "wait" ? "border-warn/50 bg-warn-soft text-foreground" : "border-border bg-card text-muted-foreground")}>
+    <div role={role} className={cn("rounded-lg border px-3 py-2 text-sm",
+      tone === "wait" ? "border-warn/50 bg-warn-soft text-foreground" : "border-border bg-card/70 text-muted-foreground")}>
       {children}
     </div>
   );
@@ -103,7 +109,7 @@ export function Note({ children, tone = "neutral", role }: { children: ReactNode
 
 export function Empty({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="rounded-md border border-dashed border-rail px-4 py-6 text-sm">
+    <div className="rounded-xl border border-dashed border-rail bg-card/40 px-4 py-6 text-sm">
       <p className="font-medium">{title}</p>
       {children && <div className="mt-1 text-muted-foreground">{children}</div>}
     </div>
@@ -114,11 +120,14 @@ export function Section({ title, description, children, actions, id }: {
   title: string; description?: ReactNode; children: ReactNode; actions?: ReactNode; id?: string;
 }) {
   return (
-    <section className="mt-8 first:mt-0" aria-labelledby={id}>
+    <section className="enter mt-10 first:mt-0" aria-labelledby={id}>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 id={id} className="text-xl font-semibold">{title}</h2>
-          {description && <p className="text-sm text-muted-foreground">{description}</p>}
+          <h2 id={id} className="flex items-center gap-2 text-xl font-semibold">
+            <span aria-hidden="true" className="h-4 w-0.5 rounded-full bg-primary shadow-[0_0_8px_rgb(var(--glow)/0.8)]" />
+            {title}
+          </h2>
+          {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
         </div>
         {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
       </div>
@@ -130,7 +139,7 @@ export function Section({ title, description, children, actions, id }: {
 export function JsonView({ value, label }: { value: unknown; label?: string }) {
   return (
     // tabIndex: a scrollable box must be reachable by keyboard so it can be scrolled without a mouse
-    <pre aria-label={label} tabIndex={0} className="scroll-x max-h-80 rounded-sm border border-border bg-background p-3 font-mono text-xs leading-relaxed">
+    <pre aria-label={label} tabIndex={0} className="scroll-x max-h-80 rounded-lg border border-border bg-background/70 p-3 font-mono text-xs leading-relaxed">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -143,7 +152,7 @@ export function Facts({ rows }: { rows: [string, ReactNode][] }) {
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="font-mono text-xs text-muted-foreground sm:pt-0.5">{k}</dt>
-          <dd className="mb-1 min-w-0 overflow-wrap-anywhere sm:mb-0 [overflow-wrap:anywhere]">{v}</dd>
+          <dd className="mb-1 min-w-0 sm:mb-0 [overflow-wrap:anywhere]">{v}</dd>
         </div>
       ))}
     </dl>

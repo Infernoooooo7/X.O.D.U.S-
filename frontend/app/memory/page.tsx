@@ -66,7 +66,7 @@ export default function Memory() {
       {notice && <div className="mb-4"><Note role="status">{notice}</Note></div>}
       <ErrorNote error={action.error} title="That did not work" />
 
-      <section aria-labelledby="add" className="rounded-md border border-border bg-card p-4">
+      <section aria-labelledby="add" className="panel p-4">
         <h2 id="add" className="text-lg font-semibold">Add something to remember</h2>
         <form className="mt-3 grid gap-3 sm:grid-cols-[10rem_1fr_auto] sm:items-end" onSubmit={(e) => {
           e.preventDefault();
@@ -74,7 +74,7 @@ export default function Memory() {
         }}>
           <div>
             <Label htmlFor="mkind">Kind</Label>
-            <select id="mkind" value={newKind} onChange={(e) => setNewKind(e.target.value)} className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm">
+            <select id="mkind" value={newKind} onChange={(e) => setNewKind(e.target.value)} className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm">
               <option value="note">Note</option><option value="fact">Fact</option><option value="preference">Preference</option>
             </select>
           </div>
@@ -98,7 +98,7 @@ export default function Memory() {
             {(items.data ?? []).map((m) => {
               const st = STATUS[m.status];
               return (
-                <li key={m.id} className="rounded-md border border-border bg-card p-4">
+                <li key={m.id} className="panel p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="eyebrow">{m.kind} {m.id}</p>
                     <Status tone={st.tone}>{st.label}</Status>
@@ -147,7 +147,7 @@ function Filter({ id, label, value, onChange, options }: { id: string; label: st
   return (
     <span className="flex items-center gap-1.5">
       <Label htmlFor={id}>{label}</Label>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2 text-sm">
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-8 rounded-lg border border-input bg-background px-2 text-sm">
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
     </span>

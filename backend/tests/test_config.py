@@ -79,6 +79,29 @@ def test_more_invalid_settings(make_settings, extra, match):
         make_settings(extra=extra)
 
 
+@pytest.mark.parametrize("env, name", [
+    ("XODUS_OLLAMA__MODEL", "gpt-oss:120b-cloud"),
+    ("XODUS_OLLAMA__MODEL", "qwen3-coder:480B-CLOUD"),
+    ("XODUS_OLLAMA__MODEL", "kimi-k2:cloud"),
+    ("XODUS_OLLAMA__EMBED_MODEL", "embedder:0.6b-cloud"),
+])
+def test_ollama_cloud_models_are_refused(make_settings, monkeypatch, env, name):
+    monkeypatch.setenv(env, name)
+    with pytest.raises(ConfigError, match="cloud model"):
+        make_settings()
+
+
+def test_a_cloud_model_profile_is_refused(make_settings):
+    with pytest.raises(ConfigError, match=r"models\.profiles\.0\.model: .*cloud model"):
+        make_settings(extra='\n[[models.profiles]]\nid = "big"\nmodel = "deepseek-v3.1:671b-cloud"\n')
+
+
+@pytest.mark.parametrize("name", ["wordcloud:latest", "cloudy-llama:7b", "qwen3:4b-instruct-2507-q4_K_M"])
+def test_local_models_whose_names_mention_cloud_are_accepted(make_settings, monkeypatch, name):
+    monkeypatch.setenv("XODUS_OLLAMA__MODEL", name)
+    assert make_settings().ollama.model == name
+
+
 def test_global_grants_vocabulary_is_closed(make_settings, monkeypatch):
     monkeypatch.setenv("XODUS_PERMISSIONS__GLOBAL_GRANTS", '["fs.write:everything"]')
     with pytest.raises(ConfigError, match="global_grants"):

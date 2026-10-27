@@ -89,7 +89,7 @@ export default function Capabilities() {
         {ext.data && ext.data.extensions.length === 0 && <Empty title="No plugins or MCP servers are installed">Put one in the plugins folder and restart the backend.</Empty>}
         <div className="grid gap-4 md:grid-cols-2">
           {(ext.data?.extensions ?? []).map((e) => (
-            <article key={e.id} className="rounded-md border border-border bg-card p-4 text-sm">
+            <article key={e.id} className="panel p-4 text-sm">
               <p className="eyebrow">{e.kind === "mcp_server" ? "MCP server" : "plugin"} {e.id} v{e.version}</p>
               <h3 className="mt-0.5 text-base font-semibold">{e.name}</h3>
               <p className="text-muted-foreground">{e.description}</p>
@@ -120,7 +120,7 @@ export default function Capabilities() {
         {(rejected.data ?? []).length === 0 ? <Empty title="Nothing was rejected" /> : (
           <ul className="space-y-2">
             {(rejected.data ?? []).map((r) => (
-              <li key={`${r.source}:${r.ref}`} className="rounded-md border border-destructive/40 bg-card p-3 text-sm">
+              <li key={`${r.source}:${r.ref}`} className="panel border-destructive/40 p-3 text-sm">
                 <p className="eyebrow">{r.source}</p>
                 <p className="font-medium">{r.ref}</p>
                 <ul className="list-disc pl-5 text-destructive">{r.reasons.map((x) => <li key={x}>{x}</li>)}</ul>

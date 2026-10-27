@@ -5,90 +5,121 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
-  XODUS design tokens. Warm paper base (#e6ded4, from the brief), ink text, one accent: deep verdigris.
-  Contrast (WCAG 2.x, checked by hand and by axe-core in the browser tests):
-    ink #231f1a on paper 13.6:1 | muted #5e554b on paper 5.4:1, on card 6.1:1 | accent #1d5c57 on paper 5.6:1
-    input border #857868 on card 3.6:1 (non-text 3:1) | dark: muted #aba193 on card 6.2:1, accent #6fbfb2 on bg 8:1
-  Fonts are local Windows faces; nothing is downloaded.
+  XODUS design tokens. Two themes:
+  - Dark (default): deep blue-black layers, one cyan-teal light used for state, focus and the core.
+  - Light: the warm paper base from the brief (#e6ded4), ink text, deep teal.
+  Contrast (WCAG 2.x, computed for every text/background pair below and checked by axe-core in the browser tests):
+    dark  text 15.8:1 on card | muted 7.3:1 on card, 6.7:1 on muted | primary 10.8:1 on card | input border 3.1:1
+    light text 14.9:1 on card | muted 6.7:1 on card, 5.3:1 on sidebar | primary 6.5:1 on card | input border 3.7:1
+  Fonts are local Windows faces; nothing is downloaded. Glow is reserved for state, focus and the core, never body text.
 */
 :root {
-  --paper: #e6ded4;
   --background: #e6ded4;
-  --foreground: #231f1a;
-  --card: #f2ece4;
-  --card-foreground: #231f1a;
-  --popover: #f6f1ea;
-  --popover-foreground: #231f1a;
-  --primary: #1d5c57;
+  --foreground: #1d1a16;
+  --card: #f3ede5;
+  --card-foreground: #1d1a16;
+  --popover: #f8f3ec;
+  --popover-foreground: #1d1a16;
+  --primary: #0e5e58;
   --primary-foreground: #f6f1ea;
-  --secondary: #ddd4c8;
-  --secondary-foreground: #231f1a;
-  --muted: #ddd4c8;
-  --muted-foreground: #5e554b;
-  --accent: #d6ddd5;
-  --accent-foreground: #173f3c;
+  --secondary: #e0d7cb;
+  --secondary-foreground: #1d1a16;
+  --muted: #e0d7cb;
+  --muted-foreground: #5a5148;
+  --accent: #d3ded8;
+  --accent-foreground: #123f3b;
   --destructive: #9b2c1f;
   --destructive-soft: #f1dad3;
   --warn: #7a5200;
   --warn-soft: #f1e2c2;
   --ok: #2f5b2a;
-  --border: #cfc5b8;
+  --border: #cec3b5;
   --input: #857868;
-  --ring: #1d5c57;
+  --ring: #0e5e58;
   --rail: #b8ab9b;
-  --radius: 0.375rem;
+  --radius: 0.625rem;
   --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --font-display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
   --sidebar: #ddd4c8;
-  --sidebar-foreground: #231f1a;
-  --sidebar-primary: #1d5c57;
+  --sidebar-foreground: #1d1a16;
+  --sidebar-primary: #0e5e58;
   --sidebar-primary-foreground: #f6f1ea;
-  --sidebar-accent: #d0c6b9;
-  --sidebar-accent-foreground: #231f1a;
-  --sidebar-border: #cfc5b8;
-  --sidebar-ring: #1d5c57;
-  --chart-1: #1d5c57;
+  --sidebar-accent: #d2c8bb;
+  --sidebar-accent-foreground: #1d1a16;
+  --sidebar-border: #cec3b5;
+  --sidebar-ring: #0e5e58;
+  --chart-1: #0e5e58;
   --chart-2: #857868;
   --chart-3: #7a5200;
   --chart-4: #9b2c1f;
-  --chart-5: #5e554b;
+  --chart-5: #5a5148;
+  /* light, depth and the core */
+  --glow: 14 94 88; /* rgb triplet of the accent light */
+  --warn-rgb: 122 82 0;
+  --bad-rgb: 155 44 31;
+  --glass: color-mix(in oklab, #f8f3ec 82%, transparent);
+  --glass-border: color-mix(in oklab, #ffffff 55%, #cec3b5);
+  --panel-top: color-mix(in oklab, #f3ede5 80%, #ffffff);
+  --shadow-panel: inset 0 1px 0 rgb(255 255 255 / 0.55), 0 14px 32px -24px rgb(70 48 24 / 0.45);
+  --atmosphere: radial-gradient(1100px 520px at 50% -12%, rgb(255 255 255 / 0.55), transparent 62%),
+    radial-gradient(800px 480px at 105% 100%, rgb(14 94 88 / 0.07), transparent 60%);
+  --core-1: #0e5e58; /* particles */
+  --core-2: #3f8f86; /* rings */
+  --core-3: #b07a3a; /* warm inner light */
   color-scheme: light;
 }
 
 .dark {
-  --paper: #1c1a17;
-  --background: #1c1a17;
-  --foreground: #ece5da;
-  --card: #262320;
-  --card-foreground: #ece5da;
-  --popover: #2c2925;
-  --popover-foreground: #ece5da;
-  --primary: #6fbfb2;
-  --primary-foreground: #10201e;
-  --secondary: #322e29;
-  --secondary-foreground: #ece5da;
-  --muted: #322e29;
-  --muted-foreground: #aba193;
-  --accent: #23342f;
-  --accent-foreground: #bfe3dc;
-  --destructive: #f08a7a;
-  --destructive-soft: #3d2420;
-  --warn: #e2b65a;
-  --warn-soft: #3a2f1a;
-  --ok: #9fcf95;
-  --border: #3a3631;
-  --input: #7d7366;
-  --ring: #6fbfb2;
-  --rail: #4a443d;
-  --sidebar: #22201c;
-  --sidebar-foreground: #ece5da;
-  --sidebar-primary: #6fbfb2;
-  --sidebar-primary-foreground: #10201e;
-  --sidebar-accent: #2f2b27;
-  --sidebar-accent-foreground: #ece5da;
-  --sidebar-border: #3a3631;
-  --sidebar-ring: #6fbfb2;
+  --background: #05090d;
+  --foreground: #e3edf1;
+  --card: #0b1218;
+  --card-foreground: #e3edf1;
+  --popover: #0e161d;
+  --popover-foreground: #e3edf1;
+  --primary: #4fd8cc;
+  --primary-foreground: #032220;
+  --secondary: #121c24;
+  --secondary-foreground: #e3edf1;
+  --muted: #121c24;
+  --muted-foreground: #8fa4ae;
+  --accent: #0f2a2c;
+  --accent-foreground: #a7f3ea;
+  --destructive: #ff8f80;
+  --destructive-soft: #2a1414;
+  --warn: #f5c060;
+  --warn-soft: #2a2110;
+  --ok: #74e0a4;
+  --border: #1b2731;
+  --input: #4d6573;
+  --ring: #5eead4;
+  --rail: #2a3a45;
+  --sidebar: #070c11;
+  --sidebar-foreground: #e3edf1;
+  --sidebar-primary: #4fd8cc;
+  --sidebar-primary-foreground: #032220;
+  --sidebar-accent: #101b22;
+  --sidebar-accent-foreground: #e3edf1;
+  --sidebar-border: #16212a;
+  --sidebar-ring: #5eead4;
+  --chart-1: #4fd8cc;
+  --chart-2: #6b8796;
+  --chart-3: #f5c060;
+  --chart-4: #ff8f80;
+  --chart-5: #8fa4ae;
+  --glow: 79 216 204;
+  --warn-rgb: 245 192 96;
+  --bad-rgb: 255 143 128;
+  --glass: color-mix(in oklab, #0b1218 80%, transparent);
+  --glass-border: color-mix(in oklab, #9fd8e6 14%, transparent);
+  --panel-top: color-mix(in oklab, #0b1218 94%, #9fd8e6);
+  --shadow-panel: inset 0 1px 0 rgb(180 230 240 / 0.05), 0 22px 44px -28px rgb(0 0 0 / 0.9);
+  --atmosphere: radial-gradient(1100px 560px at 52% -14%, rgb(79 216 204 / 0.11), transparent 62%),
+    radial-gradient(900px 520px at 100% 105%, rgb(56 120 220 / 0.07), transparent 60%),
+    radial-gradient(700px 420px at -5% 60%, rgb(79 216 204 / 0.04), transparent 60%);
+  --core-1: #7ff3e8;
+  --core-2: #38c6d9;
+  --core-3: #2a7fff;
   color-scheme: dark;
 }
 
@@ -97,7 +128,6 @@
   --font-heading: var(--font-display);
   --font-display: var(--font-display);
   --font-mono: var(--font-mono);
-  --color-paper: var(--paper);
   --color-rail: var(--rail);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
@@ -151,17 +181,25 @@
     @apply font-sans;
     font-size: 100%;
     -webkit-text-size-adjust: 100%;
+    background: var(--background);
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    min-height: 100dvh;
+    background: var(--atmosphere), var(--background);
+    background-attachment: fixed;
     font-size: 1rem;
     line-height: 1.55;
     font-feature-settings: "ss01";
+    -webkit-font-smoothing: antialiased;
   }
   h1, h2, h3 {
     font-family: var(--font-display);
     line-height: 1.15;
     text-wrap: balance;
+  }
+  ::selection {
+    background: rgb(var(--glow) / 0.28);
   }
   :focus-visible {
     outline: 2px solid var(--ring);
@@ -184,10 +222,42 @@
 }
 
 @layer components {
-  /* Ticket strip: the metadata line under a reply, a task or a process. Dashed rule, monospace fields. */
+  /* Surfaces. A panel is a solid layer with a faint top highlight; glass is reserved for floating chrome (top bar,
+     composer, palette) and stays at least 80% opaque so text keeps its contrast whatever is behind it. */
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: linear-gradient(180deg, var(--panel-top), var(--card) 42%);
+    box-shadow: var(--shadow-panel);
+    color: var(--card-foreground);
+  }
+  .panel-hover {
+    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  }
+  .panel-hover:hover, .panel-hover:focus-within {
+    border-color: color-mix(in oklab, var(--primary) 38%, var(--border));
+    box-shadow: var(--shadow-panel), 0 0 0 1px rgb(var(--glow) / 0.08), 0 0 28px -10px rgb(var(--glow) / 0.35);
+  }
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(16px) saturate(1.35);
+    backdrop-filter: blur(16px) saturate(1.35);
+    box-shadow: var(--shadow-panel);
+  }
+  .glow-ring {
+    box-shadow: 0 0 0 1px rgb(var(--glow) / 0.35), 0 0 24px -6px rgb(var(--glow) / 0.55);
+  }
+  .hairline {
+    height: 1px;
+    border: 0;
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 45%, var(--border)), transparent);
+  }
+
+  /* Ticket strip: the metadata line under a reply, a task or a process. Monospace fields, dashed rule. */
   .ticket {
     font-family: var(--font-mono);
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     line-height: 1.6;
     color: var(--muted-foreground);
     border-top: 1px dashed var(--rail);
@@ -201,15 +271,15 @@
     font-weight: 600;
     color: var(--foreground);
   }
-  /* Eyebrow: the small monospace label above a card title. Sentence case, never tracked-out capitals. */
+  /* Eyebrow: the small monospace label above a title. Sentence case, never tracked-out capitals. */
   .eyebrow {
     font-family: var(--font-mono);
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     color: var(--muted-foreground);
   }
   .card-number {
     font-family: var(--font-mono);
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
@@ -220,14 +290,31 @@
     font-family: var(--font-mono);
     font-size: 0.72rem;
     line-height: 1.3;
-    padding: 0.1rem 0.4rem;
+    padding: 0.12rem 0.5rem;
     border: 1px solid var(--border);
-    border-radius: 2px;
+    border-radius: 999px;
     color: var(--foreground);
-    background: color-mix(in oklab, var(--card) 70%, var(--paper));
+    background: color-mix(in oklab, var(--muted) 70%, transparent);
     white-space: nowrap;
   }
-  /* The task timeline: a rail with T+ offsets in a monospace gutter. */
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 0.3rem;
+    color: var(--muted-foreground);
+    background: var(--muted);
+  }
+  .display {
+    font-family: var(--font-display);
+    font-weight: 330;
+    letter-spacing: -0.022em;
+    line-height: 1.05;
+  }
+
+  /* The task timeline: a rail with T+ offsets in a monospace gutter; the active node carries the accent light. */
   .timeline {
     list-style: none;
     margin: 0;
@@ -235,41 +322,44 @@
   }
   .timeline > li {
     display: grid;
-    grid-template-columns: 4.6rem 1fr;
+    grid-template-columns: 4.4rem 1fr;
     column-gap: 0.75rem;
     position: relative;
     padding-bottom: 0.85rem;
+    animation: x-rise 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   }
   .timeline > li > .t {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.74rem;
     color: var(--muted-foreground);
     text-align: right;
     padding-top: 0.15rem;
     font-variant-numeric: tabular-nums;
   }
   .timeline > li > .body {
-    border-left: 2px solid var(--rail);
-    padding-left: 0.85rem;
+    border-left: 1px solid var(--rail);
+    padding-left: 0.9rem;
     position: relative;
     min-width: 0;
   }
   .timeline > li > .body::before {
     content: "";
     position: absolute;
-    left: -6px;
-    top: 0.35rem;
-    width: 10px;
-    height: 10px;
+    left: -5px;
+    top: 0.38rem;
+    width: 9px;
+    height: 9px;
     border-radius: 999px;
-    background: var(--paper);
+    background: var(--background);
     border: 2px solid var(--rail);
   }
-  .timeline > li[data-tone="active"] > .body::before { border-color: var(--primary); background: var(--primary); }
-  .timeline > li[data-tone="wait"] > .body::before { border-color: var(--warn); background: var(--warn-soft); }
+  .timeline > li[data-tone="active"] > .body::before { border-color: var(--primary); background: var(--primary); box-shadow: 0 0 10px rgb(var(--glow) / 0.8); }
+  .timeline > li[data-tone="wait"] > .body::before { border-color: var(--warn); background: var(--warn-soft); box-shadow: 0 0 10px rgb(var(--warn-rgb) / 0.6); }
   .timeline > li[data-tone="bad"] > .body::before { border-color: var(--destructive); background: var(--destructive-soft); }
   .timeline > li[data-tone="good"] > .body::before { border-color: var(--ok); background: var(--ok); }
   .timeline > li:last-child { padding-bottom: 0; }
+  .timeline > li:last-child > .body { border-left-color: transparent; }
+
   .prose-reply {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -279,4 +369,74 @@
     overflow-x: auto;
     max-width: 100%;
   }
+
+  /* Navigation */
+  .nav-link {
+    position: relative;
+    transition: background-color 140ms ease, color 140ms ease;
+  }
+  .nav-link[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    left: -0.5rem;
+    top: 22%;
+    bottom: 22%;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--primary);
+    box-shadow: 0 0 10px rgb(var(--glow) / 0.9);
+  }
+
+  /* Motion: each one is tied to a real change (a view opening, a step arriving, text streaming, a decision waiting). */
+  .enter {
+    animation: x-rise 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .caret::after {
+    content: "";
+    display: inline-block;
+    width: 0.5ch;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: -0.17em;
+    background: var(--primary);
+    box-shadow: 0 0 8px rgb(var(--glow) / 0.8);
+    animation: x-blink 1s steps(2, start) infinite;
+  }
+  .signal {
+    position: relative;
+  }
+  .signal::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.9rem;
+    bottom: 0.9rem;
+    width: 2px;
+    border-radius: 2px;
+    background: color-mix(in oklab, var(--primary) 30%, var(--border));
+  }
+  .signal[data-live="true"]::before {
+    background: linear-gradient(180deg, transparent, var(--primary), transparent) 0 0 / 100% 200%;
+    box-shadow: 0 0 12px rgb(var(--glow) / 0.6);
+    animation: x-flow 1.2s linear infinite;
+  }
+  .attention {
+    animation: x-attention 1.6s ease-in-out 3;
+  }
+}
+
+@keyframes x-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes x-blink {
+  to { visibility: hidden; }
+}
+@keyframes x-flow {
+  from { background-position: 0 100%; }
+  to { background-position: 0 -100%; }
+}
+@keyframes x-attention {
+  0%, 100% { box-shadow: var(--shadow-panel), 0 0 0 0 rgb(var(--warn-rgb) / 0); }
+  50% { box-shadow: var(--shadow-panel), 0 0 0 4px rgb(var(--warn-rgb) / 0.22), 0 0 30px -6px rgb(var(--warn-rgb) / 0.5); }
 }

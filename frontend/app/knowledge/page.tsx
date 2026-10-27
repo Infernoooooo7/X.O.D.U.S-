@@ -66,7 +66,7 @@ export default function Knowledge() {
             {(jobs.data ?? []).map((j) => {
               const st = JOB_STATUS[j.status] ?? { label: j.status, tone: "neutral" as const };
               return (
-                <li key={j.id} className="flex flex-col gap-2 rounded-md border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+                <li key={j.id} className="flex flex-col gap-2 panel p-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="eyebrow">job {j.id}, {j.collection}, queued {ago(j.created_at)}</p>
                     <p className="font-mono text-sm [overflow-wrap:anywhere]">{j.root_id}/{j.rel_path}</p>
@@ -93,7 +93,7 @@ export default function Knowledge() {
       <Section title="Documents" id="documents" actions={
         <div className="flex items-center gap-2">
           <Label htmlFor="docfilter" className="text-sm">Collection</Label>
-          <select id="docfilter" value={filter} onChange={(e) => setFilter(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2 text-sm">
+          <select id="docfilter" value={filter} onChange={(e) => setFilter(e.target.value)} className="h-8 rounded-lg border border-input bg-background px-2 text-sm">
             <option value="">All</option>
             {(collections.data ?? []).map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
@@ -115,7 +115,7 @@ function CollectionsPanel({ collections, error, onChange, setNotice }: {
   const [name, setName] = useState("");
   const action = useAction();
   return (
-    <section aria-labelledby="collections" className="rounded-md border border-border bg-card p-4">
+    <section aria-labelledby="collections" className="panel p-4">
       <h2 id="collections" className="text-lg font-semibold">Collections</h2>
       <p className="text-sm text-muted-foreground">Groups of documents you search, grant to the model, or delete together.</p>
       <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={async (e) => {
@@ -185,26 +185,26 @@ function IngestPanel({ collections, roots, onQueued }: {
 
   if (!collections.length) {
     return (
-      <section className="rounded-md border border-border bg-card p-4">
+      <section className="panel p-4">
         <h2 className="text-lg font-semibold">Add files</h2>
         <p className="text-sm text-muted-foreground">Create a collection first; files are added to one.</p>
       </section>
     );
   }
   return (
-    <section aria-labelledby="add-files" className="rounded-md border border-border bg-card p-4">
+    <section aria-labelledby="add-files" className="panel p-4">
       <h2 id="add-files" className="text-lg font-semibold">Add files</h2>
       <p className="text-sm text-muted-foreground">Markdown, text, CSV, PDF (with a text layer) and DOCX, up to 50 MB each. Links and junctions are never followed.</p>
       <form onSubmit={submit} className="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
           <Label htmlFor="icoll">Collection</Label>
-          <select id="icoll" value={coll} onChange={(e) => setCollection(e.target.value)} className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm">
+          <select id="icoll" value={coll} onChange={(e) => setCollection(e.target.value)} className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm">
             {collections.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
         </div>
         <div>
           <Label htmlFor="iroot">Folder</Label>
-          <select id="iroot" value={rootId} onChange={(e) => setRoot(e.target.value)} className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm">
+          <select id="iroot" value={rootId} onChange={(e) => setRoot(e.target.value)} className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm">
             {roots.map((r) => <option key={r.id} value={r.id}>{r.id}</option>)}
           </select>
         </div>
@@ -241,7 +241,7 @@ function DocumentRow({ d, onDeleted }: { d: Doc; onDeleted: (msg: string) => voi
   const chunks = usePoll(() => open ? api<{ id: number; ordinal: number; text: string; locator: string | null; heading_path: string | null }[]>(`/api/knowledge/documents/${d.id}/chunks?limit=50`) : Promise.resolve(null), 0, [open]);
   const tone = d.status === "ready" ? "good" : d.status === "failed" ? "bad" : d.status === "ingesting" ? "active" : "neutral";
   return (
-    <li className="rounded-md border border-border bg-card p-3">
+    <li className="panel p-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="eyebrow">{d.collection}, {d.format}, {bytes(d.size_bytes)}{d.pages ? `, ${d.pages} pages` : ""}</p>

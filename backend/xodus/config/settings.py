@@ -25,7 +25,7 @@ class ConfigError(Exception):
     """Configuration is missing or invalid; the message is meant for the user."""
 
 
-def _is_loopback(host: str) -> bool:
+def is_loopback_host(host: str) -> bool:
     if host.lower() == "localhost":
         return True
     try:
@@ -64,7 +64,7 @@ class ServerSettings(_Section):
     @field_validator("host")
     @classmethod
     def _loopback_only(cls, v: str) -> str:
-        if not _is_loopback(v):
+        if not is_loopback_host(v):
             raise ValueError(f"must be a loopback address (127.0.0.1, ::1 or localhost), got {v!r}")
         return v
 
@@ -100,7 +100,7 @@ class OllamaSettings(_Section):
         parsed = urlparse(v)
         if parsed.scheme != "http" or not parsed.hostname:
             raise ValueError(f"must be an http:// URL, got {v!r}")
-        if not _is_loopback(parsed.hostname):
+        if not is_loopback_host(parsed.hostname):
             raise ValueError(f"must point at a loopback host, got {parsed.hostname!r}")
         return v.rstrip("/")
 
@@ -133,7 +133,7 @@ class ModelProfileSettings(_Section):
 
     @field_validator("model")
     @classmethod
-    def _local_model(cls, v: str) -> str:
+    def _local_models(cls, v: str) -> str:
         return _local_model(v)
 
 

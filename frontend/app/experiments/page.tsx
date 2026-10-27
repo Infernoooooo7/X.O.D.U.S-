@@ -37,7 +37,7 @@ export default function Experiments() {
         <div className="space-y-3">
           {(list.data?.runs ?? []).length === 0 && !list.loading && <Empty title="No results yet">Results appear after a benchmark or measurement script runs.</Empty>}
           {(list.data?.runs ?? []).map((run) => (
-            <section key={run.name} aria-label={run.name} className="rounded-md border border-border bg-card p-3">
+            <section key={run.name} aria-label={run.name} className="panel p-3">
               <h2 className="font-mono text-sm font-semibold">{run.name}</h2>
               <ul className="mt-2 space-y-1">
                 {run.files.map((f) => (
@@ -56,7 +56,7 @@ export default function Experiments() {
           {file && (
             <>
               <div className="mb-2 flex gap-2"><Tag>{bytes(file.bytes)}</Tag>{file.truncated && <Tag>first 1 MB shown</Tag>}</div>
-              <pre tabIndex={0} aria-label={`Contents of ${file.path}`} className="scroll-x max-h-[70dvh] whitespace-pre-wrap rounded-md border border-border bg-card p-3 font-mono text-xs [overflow-wrap:anywhere]">{pretty(file)}</pre>
+              <pre tabIndex={0} aria-label={`Contents of ${file.path}`} className="scroll-x max-h-[70dvh] whitespace-pre-wrap panel p-3 font-mono text-xs [overflow-wrap:anywhere]">{pretty(file)}</pre>
             </>
           )}
         </Section>

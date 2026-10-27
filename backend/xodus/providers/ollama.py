@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from jsonschema import Draft202012Validator
 
-from xodus.config.settings import EmbeddingSettings, OllamaSettings
+from xodus.config.settings import EmbeddingSettings, OllamaSettings, is_cloud_model_name
 from xodus.providers.base import (
     MODEL_CAPABILITIES,
     CapabilityNotConfirmed,
@@ -23,6 +23,7 @@ from xodus.providers.base import (
     ProviderError,
     ProviderTimeout,
     ProviderUnavailable,
+    RemoteModelRefused,
     RequestBudget,
     StreamChunk,
     ToolCall,
@@ -49,6 +50,32 @@ _CAPABILITY_MAP = {
     "embedding": {"embedding"},
     "vision": {"vision"},
 }
+
+
+def is_remote_model(entry: dict[str, Any]) -> bool:
+    """A model that Ollama runs on another computer. Ollama sets remote_model / remote_host on such models (both are
+    omitted when empty in Ollama 0.40.11, so a local alias of a cloud model is caught too) and gives its own cloud
+    models a '-cloud' tag."""
+    name = str(entry.get("name") or entry.get("model") or "")
+    return bool(entry.get("remote_model") or entry.get("remote_host")) or is_cloud_model_name(name)
+
+
+def find_model(models: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    """The /api/tags entry for `name`, or None when it is not installed."""
+    return next((m for m in models if name in (m.get("name"), m.get("model"))), None)
+
+
+def _remoteness(name: str, *descriptions: dict[str, Any] | None) -> tuple[bool, str | None]:
+    """Does any of Ollama's descriptions of `name` (its /api/tags entry, its /api/show response) mark it remote?"""
+    found = [d for d in descriptions if d]
+    remote = is_cloud_model_name(name) or any(is_remote_model(d) for d in found)
+    return remote, next((str(d["remote_host"]) for d in found if d.get("remote_host")), None)
+
+
+def remote_model_error(name: str, host: str | None) -> RemoteModelRefused:
+    where = f"Ollama forwards it to {host}" if host else "it is an Ollama cloud or remote model"
+    return RemoteModelRefused(f"Model {name!r} does not run on this computer ({where}). XODUS uses local models only; "
+                              "configure a model that is installed locally.")
 
 
 def _error_text(body: str) -> str:
@@ -92,11 +119,37 @@ class SyncOllamaEmbedder:
         self._embedding = embedding
         self._client = httpx.Client(base_url=ollama.base_url, trust_env=False,
                                     timeout=httpx.Timeout(embedding.timeout_s, connect=ollama.connect_timeout_s))
+        self._checked_local = False
 
     def close(self) -> None:
         self._client.close()
 
+    def _ensure_local(self) -> None:
+        """Refuse an embedding model that Ollama would run on another computer: document text must not leave this one.
+        Checked once per worker."""
+        if self._checked_local:
+            return
+        name = self._ollama.embed_model
+        try:
+            show = self._client.post("/api/show", json={"model": name})
+            tags = self._client.get("/api/tags")
+        except httpx.TransportError as exc:
+            raise ProviderUnavailable(f"Ollama is not reachable at {self._ollama.base_url}.", detail=str(exc)) from exc
+        if show.status_code == 404:
+            return  # not installed: /api/embed reports that with its own message
+        if show.status_code >= 400 or tags.status_code >= 400:
+            raise ProviderError(f"Ollama returned HTTP {max(show.status_code, tags.status_code)} while checking "
+                                f"the embedding model {name!r}.")
+        try:
+            remote, host = _remoteness(name, find_model(tags.json().get("models", []), name), show.json())
+        except (ValueError, AttributeError) as exc:
+            raise ProviderError("Ollama sent an unexpected response while checking the embedding model.") from exc
+        if remote:
+            raise remote_model_error(name, host)
+        self._checked_local = True
+
     def embed(self, texts: list[str]) -> list[list[float]]:
+        self._ensure_local()
         payload = embed_payload(self._ollama, texts, self._embedding.dimensions, self._embedding.num_gpu)
         try:
             resp = self._client.post("/api/embed", json=payload)
@@ -148,6 +201,7 @@ class OllamaProvider:
         )
         self._confirmed: set[str] | None = None
         self._info: ModelInfo | None = None
+        self._embed_local: str | None = None  # the embedding model last confirmed to run on this computer
         self._on_event = on_event or (lambda *_args, **_kw: None)
 
     @property
@@ -211,11 +265,14 @@ class OllamaProvider:
         except (httpx.HTTPStatusError, ValueError) as exc:
             return {**base, "status": "error", "message": f"Unexpected Ollama response: {exc}"}
 
-        found = next(
-            (m for m in tags_resp.json().get("models", []) if self._s.model in (m.get("name"), m.get("model"))),
-            None,
-        )
+        models = tags_resp.json().get("models", [])
+        found = find_model(models, self._s.model)
         result = {**base, "ollama_version": version.get("version")}
+        for name in (self._s.model, self._s.embed_model):
+            entry = find_model(models, name)
+            if entry is not None and is_remote_model(entry):
+                return {**result, "status": "remote_model",
+                        "message": remote_model_error(name, entry.get("remote_host") or None).message}
         if found is None:
             return {**result, "status": "model_missing",
                     "message": f"Model {self._s.model!r} is not installed. Run: ollama pull {self._s.model}"}
@@ -246,16 +303,14 @@ class OllamaProvider:
         info = show.get("model_info", {}) or {}
         context = next((v for k, v in info.items() if k.endswith(".context_length")), None)
         embedding_length = next((v for k, v in info.items() if k.endswith(".embedding_length")), None)
-        digest = None
-        for m in await self.list_models():
-            if name in (m.get("name"), m.get("model")):
-                digest = m.get("digest")
+        entry = find_model(await self.list_models(), name)
+        remote, remote_host = _remoteness(name, entry, show)
         reported = [str(c) for c in show.get("capabilities", [])]
         mapped = set().union(*(_CAPABILITY_MAP.get(c, set()) for c in reported)) if reported else set()
         declared = set(self._s.capabilities) if name == self._s.model else set()
         return ModelInfo(
             name=name,
-            digest=digest,
+            digest=entry.get("digest") if entry else None,
             context_length=int(context) if context else None,
             quantization=details.get("quantization_level"),
             family=details.get("family"),
@@ -264,6 +319,8 @@ class OllamaProvider:
             declared=sorted(declared),
             confirmed=sorted(declared & mapped & MODEL_CAPABILITIES),
             embedding_length=int(embedding_length) if embedding_length else None,
+            remote=remote,
+            remote_host=remote_host,
         )
 
     async def probe(self) -> ModelInfo:
@@ -276,9 +333,17 @@ class OllamaProvider:
     def confirmed_capabilities(self) -> set[str] | None:
         return None if self._confirmed is None else set(self._confirmed)
 
-    async def _require(self, capability: str) -> None:
-        if self._confirmed is None:
+    async def _local_info(self) -> ModelInfo:
+        """The active model's probe result (probed again when the model changed); refuses a model that runs elsewhere."""
+        if self._info is None or self._info.name != self._s.model:
             await self.probe()
+        assert self._info is not None
+        if self._info.remote:
+            raise remote_model_error(self._info.name, self._info.remote_host)
+        return self._info
+
+    async def _require(self, capability: str) -> None:
+        await self._local_info()
         assert self._confirmed is not None
         if capability not in self._confirmed:
             declared = sorted(self._s.capabilities)
@@ -422,8 +487,21 @@ class OllamaProvider:
         async for chunk in self.stream(messages, budget, seed=seed):
             yield chunk
 
+    async def _check_embed_model(self) -> None:
+        name = self._s.embed_model
+        if self._embed_local == name:
+            return
+        try:
+            info = await self.model_info(name)
+        except ModelNotAvailable:
+            return  # not installed: /api/embed reports that with its own message
+        if info.remote:
+            raise remote_model_error(name, info.remote_host)
+        self._embed_local = name
+
     async def embed(self, texts: list[str], *, timeout_s: float | None = None, dimensions: int | None = None) -> list[list[float]]:
         """Embed texts with ollama.embed_model, placed as configured (embedding.num_gpu)."""
+        await self._check_embed_model()
         emb = self._embedding
         dims = dimensions if dimensions is not None else (emb.dimensions if emb else None)
         timeout = timeout_s if timeout_s is not None else (emb.timeout_s if emb else 60.0)
@@ -436,11 +514,14 @@ class OllamaProvider:
         return check_embeddings(body, len(texts), dims)
 
     async def load(self, *, num_ctx: int) -> None:
+        await self._local_info()
         await self._post("/api/generate", {"model": self._s.model, "keep_alive": self._s.keep_alive,
                                            "options": {"num_ctx": num_ctx}}, self._s.request_timeout_s)
         self._on_event("model_loaded", model=self._s.model, num_ctx=num_ctx)
 
     async def unload(self) -> None:
+        if self._info is not None and self._info.name == self._s.model and self._info.remote:
+            return  # nothing of a remote model is loaded on this computer; a switch away from it goes ahead
         await self._post("/api/generate", {"model": self._s.model, "keep_alive": 0}, self._s.request_timeout_s)
         self._on_event("model_unloaded", model=self._s.model)
 

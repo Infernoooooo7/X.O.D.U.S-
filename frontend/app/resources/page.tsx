@@ -44,7 +44,7 @@ export default function Resources() {
       <ErrorNote error={view.error} title="Measurements cannot be loaded" hint={v ? "Showing the last values received." : undefined} />
       {v && (
         <>
-          <section aria-labelledby="levels" className="rounded-md border border-border bg-card p-4">
+          <section aria-labelledby="levels" className="panel p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 id="levels" className="text-lg font-semibold">Thresholds</h2>
               <span role="status"><Status tone={level.tone}>{level.label}</Status></span>
@@ -58,20 +58,20 @@ export default function Resources() {
           <Section title="Memory by line" id="lines" description={`Totals include the ${v.totals.included}. Excluded: ${v.totals.excluded}.`}>
             <ul className="space-y-2 sm:hidden">
               {v.lines.map((l) => (
-                <li key={l.line} className={`rounded-md border border-border bg-card p-3 text-sm ${l.included ? "" : "text-muted-foreground"}`}>
+                <li key={l.line} className={`panel p-3 text-sm ${l.included ? "" : "text-muted-foreground"}`}>
                   <p className="font-medium">{l.label}{!l.included && <> <Tag>not in the total</Tag></>}</p>
                   {l.note && <p className="text-xs text-muted-foreground">{l.note}</p>}
                   <Ticket fields={[["processes", l.processes ?? ""], ["USS", l.uss_mib !== null ? mib(l.uss_mib) : ""],
                     ["working set", l.working_set_mib !== null ? mib(l.working_set_mib) : ""], ["private commit", l.private_commit_mib !== null ? mib(l.private_commit_mib) : ""]]} />
                 </li>
               ))}
-              <li className="rounded-md border border-border bg-card p-3 text-sm">
+              <li className="panel p-3 text-sm">
                 <p className="font-semibold">XODUS-related total</p>
                 <Ticket fields={[["USS", `${mib(v.totals.uss_mib)}${v.totals.uss_complete ? "" : " (incomplete)"}`],
                   ["working set", mib(v.totals.working_set_mib)], ["private commit", mib(v.totals.private_commit_mib)]]} />
               </li>
             </ul>
-            <div className="hidden rounded-md border border-border bg-card sm:block">
+            <div className="hidden panel sm:block">
               <table className="w-full text-sm">
                 <caption className="sr-only">Memory per measurement line</caption>
                 <thead className="text-left font-mono text-xs text-muted-foreground">
@@ -106,7 +106,7 @@ export default function Resources() {
           </Section>
 
           <Section title="Background ingestion" id="ingestion">
-            <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-card p-4">
+            <div className="flex flex-wrap items-center gap-3 panel p-4">
               <Status tone={v.ingestion.paused ? "wait" : v.ingestion.worker.running ? "active" : "neutral"}>
                 {v.ingestion.paused ? "Paused" : v.ingestion.worker.running ? `Worker running, pid ${v.ingestion.worker.pid}` : "Idle"}
               </Status>
@@ -126,7 +126,7 @@ export default function Resources() {
               {v.processes.map((p) => {
                 const sup = v.supervised.find((s) => s.pid === p.pid);
                 return (
-                  <li key={p.pid} className="rounded-md border border-border bg-card p-3 text-sm">
+                  <li key={p.pid} className="panel p-3 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{p.name}</span>
                       <Tag>tier {p.tier}</Tag>
@@ -155,24 +155,45 @@ export default function Resources() {
   );
 }
 
+/** A 270-degree gauge of one threshold check: the measured value against its warn (amber) and stop (coral) ticks. The
+ *  scale ends 15% above the stop level, as the old bar did, so a full arc means "far past stop" or, for available
+ *  memory, "far above the floor". */
 function Meter({ c }: { c: Check }) {
   const st = LEVEL[c.level] ?? LEVEL.unknown;
   const max = c.stop_gb * 1.15;
-  const pct = c.value_gb !== null ? Math.min(100, (c.value_gb / max) * 100) : 0;
+  const fraction = c.value_gb !== null ? Math.min(1, c.value_gb / max) : 0;
   const below = c.metric === "system_available";
+  const R = 46, C = 2 * Math.PI * R;
+  const dash = (f: number) => `${C * 0.75 * f} ${C}`;
+  const tick = (gb: number) => {
+    const a = ((135 + 270 * Math.min(1, gb / max)) * Math.PI) / 180;
+    return { x1: 60 + Math.cos(a) * 37, y1: 60 + Math.sin(a) * 37, x2: 60 + Math.cos(a) * 55, y2: 60 + Math.sin(a) * 55 };
+  };
+  const color = c.level === "stop" ? "var(--destructive)" : c.level === "warn" ? "var(--warn)" : "var(--primary)";
   return (
-    <li className="rounded-sm border border-border p-3">
+    <li className="rounded-xl border border-border bg-background/40 p-3">
       <p className="text-sm font-medium">{c.label}</p>
-      <p className="mt-1 font-mono text-lg">{c.value_gb !== null ? `${c.value_gb.toFixed(2)} GB` : "n/a"}</p>
-      <div className="relative mt-2 h-2 rounded-full bg-muted" role="img"
-        aria-label={`${c.value_gb ?? "unknown"} GB; ${below ? `stop below ${c.stop_gb} GB` : `warn at ${c.warn_gb} GB, stop at ${c.stop_gb} GB`}`}>
-        <div className="h-2 rounded-full bg-primary" style={{ width: `${pct}%` }} />
-        {c.warn_gb !== null && <span className="absolute top-[-3px] h-3.5 w-0.5 bg-warn" style={{ left: `${(c.warn_gb / max) * 100}%` }} />}
-        <span className="absolute top-[-3px] h-3.5 w-0.5 bg-destructive" style={{ left: `${(c.stop_gb / max) * 100}%` }} />
+      <div className="relative mx-auto mt-2 size-36">
+        <svg viewBox="0 0 120 120" className="size-full" role="img"
+          aria-label={`${c.value_gb ?? "unknown"} GB; ${below ? `stop below ${c.stop_gb} GB` : `warn at ${c.warn_gb} GB, stop at ${c.stop_gb} GB`}`}>
+          <circle cx="60" cy="60" r={R} fill="none" stroke="var(--muted)" strokeWidth="8" strokeLinecap="round" strokeDasharray={dash(1)} transform="rotate(135 60 60)" />
+          {c.value_gb !== null && (
+            <circle cx="60" cy="60" r={R} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round" strokeDasharray={dash(fraction)}
+              transform="rotate(135 60 60)" style={{ filter: `drop-shadow(0 0 5px ${color})`, transition: "stroke-dasharray 700ms ease" }} />
+          )}
+          {c.warn_gb !== null && <line {...tick(c.warn_gb)} stroke="var(--warn)" strokeWidth="2.5" strokeLinecap="round" />}
+          <line {...tick(c.stop_gb)} stroke="var(--destructive)" strokeWidth="2.5" strokeLinecap="round" />
+        </svg>
+        <div aria-hidden="true" className="absolute inset-0 grid place-items-center text-center">
+          <div>
+            <p className="font-mono text-xl leading-none">{c.value_gb !== null ? c.value_gb.toFixed(2) : "n/a"}</p>
+            {c.value_gb !== null && <p className="mt-1 text-xs text-muted-foreground">GB</p>}
+          </div>
+        </div>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">{below ? `Stop below ${c.stop_gb} GB` : `Warn ${c.warn_gb} GB, stop ${c.stop_gb} GB`}</p>
-      <div className="mt-1"><Status tone={st.tone}>{st.label}</Status></div>
-      {c.note && <p className="mt-1 text-xs text-muted-foreground">{c.note}</p>}
+      <p className="mt-1 text-center text-xs text-muted-foreground">{below ? `Stop below ${c.stop_gb} GB` : `Warn ${c.warn_gb} GB, stop ${c.stop_gb} GB`}</p>
+      <div className="mt-2 flex justify-center"><Status tone={st.tone}>{st.label}</Status></div>
+      {c.note && <p className="mt-2 text-xs text-muted-foreground">{c.note}</p>}
     </li>
   );
 }

@@ -1,18 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { pulseCore } from "@/lib/core-state";
 import { post, type Approval, type TaskEvent } from "@/lib/api";
 import { streamEvents } from "@/lib/sse";
 import { countdown, shortHash, tplus } from "@/lib/format";
 import { useAction, useNow } from "@/lib/hooks";
 import { taskStatus, type Tone } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ErrorNote, JsonView, Status, Tag } from "./parts";
 
-type Props = { taskId: string; goal?: string; onFinished?: (status: string, answer: string | null) => void };
+type Props = {
+  taskId: string; goal?: string; onFinished?: (status: string, answer: string | null) => void;
+  /** The task's current status and how many steps have started, whenever either changes (drives the workspace core). */
+  onState?: (status: string, steps: number) => void;
+};
 
 /** Live view of one task: every backend event in order, against its T+ offset from the start of the task. */
-export function TaskTimeline({ taskId, goal, onFinished }: Props) {
+export function TaskTimeline({ taskId, goal, onFinished, onState }: Props) {
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [answer, setAnswer] = useState("");
   const [finished, setFinished] = useState<TaskEvent | null>(null);
@@ -22,6 +28,8 @@ export function TaskTimeline({ taskId, goal, onFinished }: Props) {
   const cancel = useAction();
   const finishedRef = useRef(onFinished);
   finishedRef.current = onFinished;
+  const stateRef = useRef(onState);
+  stateRef.current = onState;
 
   const follow = useCallback((signal: AbortSignal) => {
     setLost(false);
@@ -31,8 +39,10 @@ export function TaskTimeline({ taskId, goal, onFinished }: Props) {
       if (typeof ev.seq === "number") lastSeq.current = Math.max(lastSeq.current, ev.seq);
       if (ev.type === "token") {
         setAnswer((a) => a + String(ev.t ?? ""));
+        pulseCore("token");
         return;
       }
+      if (ev.type === "step_started" || ev.type === "model_call" || ev.type === "plan") pulseCore("step");
       if (ev.type === "answer") setAnswer(String(ev.text ?? ""));
       if (ev.type === "task_finished") {
         setFinished(ev);
@@ -64,9 +74,12 @@ export function TaskTimeline({ taskId, goal, onFinished }: Props) {
       ["approval_resolved", "step_blocked", "step_cancelled"].includes(e.type));
   const state = finished ? String(finished.status) : waiting ? "awaiting_approval" : events.length ? "running" : "queued";
   const status = taskStatus(state);
+  const steps = events.filter((e) => e.type === "step_started").length;
+
+  useEffect(() => { stateRef.current?.(state, steps); }, [state, steps]);
 
   return (
-    <section aria-label="Task timeline" className="rounded-md border border-border bg-card p-4 sm:p-5">
+    <section aria-label="Task timeline" className="panel p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="eyebrow">task {taskId}</p>
@@ -173,20 +186,34 @@ function ApprovalRow({ e, t, finished }: { e: TaskEvent; t: string; finished: bo
     setDecided(res.approval.status);
   });
   const open = !decided && !finished;
+  const box = useRef<HTMLDivElement>(null);
+
+  // Bring the decision to the keyboard, unless the user is typing somewhere: then the amber card and the banner say it.
+  useEffect(() => {
+    const el = document.activeElement;
+    const typing = el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+    if (open && !typing) box.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <li data-tone="wait">
       <span className="t">{t}</span>
       <div className="body">
-        <ApprovalDetails approval={approval} />
-        {open && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button size="sm" disabled={action.busy} onClick={() => decide("approve")}>Approve this action</Button>
-            <Button size="sm" variant="outline" disabled={action.busy} onClick={() => decide("deny")}>Deny</Button>
-            <span className="font-mono text-xs text-muted-foreground">expires in {countdown(approval.expires_at, now)}</span>
-          </div>
-        )}
-        {decided && <p className="mt-2 text-sm">You chose: <b>{decided === "approved" ? "approve" : "deny"}</b>. The task continues once the backend applies it.</p>}
-        <ErrorNote error={action.error} title="The decision was not accepted" />
+        <div ref={box} tabIndex={-1} role="group" aria-label={`Approval needed for step ${approval.step_index}`}
+          className={cn("rounded-xl border p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            open ? "attention border-warn/50 bg-warn-soft/50" : "border-border")}>
+          <ApprovalDetails approval={approval} />
+          {open && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button size="sm" disabled={action.busy} onClick={() => decide("approve")}>Approve this action</Button>
+              <Button size="sm" variant="outline" disabled={action.busy} onClick={() => decide("deny")}>Deny</Button>
+              <span className="font-mono text-xs text-muted-foreground">expires in {countdown(approval.expires_at, now)}</span>
+            </div>
+          )}
+          {decided && <p className="mt-2 text-sm">You chose: <b>{decided === "approved" ? "approve" : "deny"}</b>. The task continues once the backend applies it.</p>}
+          <ErrorNote error={action.error} title="The decision was not accepted" />
+        </div>
       </div>
     </li>
   );

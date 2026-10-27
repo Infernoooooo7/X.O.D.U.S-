@@ -46,7 +46,7 @@ export default function Activity() {
             {(tasks.data ?? []).map((t) => {
               const st = taskStatus(t.status);
               return (
-                <li key={t.id} className="rounded-md border border-border bg-card p-3">
+                <li key={t.id} className="panel p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <p className="eyebrow">task {t.id}, {t.arm === "plan_execute" ? "plan first" : "step by step"}, {ago(t.created_at)}</p>
@@ -74,7 +74,7 @@ export default function Activity() {
           <span className="flex items-center gap-1.5 text-sm">
             <Label htmlFor="group">Show</Label>
             <select id="group" value={group} onChange={(e) => { setGroup(e.target.value); setPages([]); }}
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm">
+              className="h-8 rounded-lg border border-input bg-background px-2 text-sm">
               {GROUPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </span>
@@ -92,7 +92,7 @@ export default function Activity() {
         )}
         <ErrorNote error={first.error ?? verify.error ?? older.error} />
         {records.length === 0 && !first.loading ? <Empty title="No audit records match" /> : (
-          <ol className="divide-y divide-border rounded-md border border-border bg-card">
+          <ol className="divide-y divide-border panel">
             {records.map((r) => (
               <li key={r.seq} className="grid gap-1 px-3 py-2 text-sm sm:grid-cols-[5rem_11rem_1fr] sm:gap-3">
                 <span className="font-mono text-xs text-muted-foreground">#{r.seq}</span>
