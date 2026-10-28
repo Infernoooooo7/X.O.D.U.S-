@@ -24,6 +24,7 @@ import { TaskTimeline } from "@/components/xodus/task-timeline";
 
 type Mode = ComposeMode;
 type Live = { mode: Mode; question: string; text: string; chunks: number; phase: "streaming" | "done" | "error";
+  sentAfter: number; // how many saved messages the conversation had when this was sent
   error?: { code: string; message: string }; meta?: Record<string, unknown>; done?: Record<string, unknown> };
 
 const MODES: { id: Mode; label: string; help: string; placeholder: string }[] = [
@@ -67,6 +68,7 @@ export default function Workspace() {
   const abort = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const messageBox = useRef<HTMLTextAreaElement | null>(null);
+  const savedCount = useRef(0);
   const system = useSystem();
 
   const detail = usePoll(() => conv ? api<ConversationDetail>(`/api/conversations/${conv}`) : Promise.resolve(null), 0, [conv]);
@@ -131,7 +133,7 @@ export default function Workspace() {
     }
     const controller = new AbortController();
     abort.current = controller;
-    setLive({ mode, question: text, text: "", chunks: 0, phase: "streaming" });
+    setLive({ mode, question: text, text: "", chunks: 0, phase: "streaming", sentAfter: savedCount.current });
     const url = mode === "chat" ? "/api/chat" : "/api/knowledge/ask";
     const body = mode === "chat" ? { message: text, conversation_id: conversationId }
       : { question: text, conversation_id: conversationId, ...(chosen ? { collections: chosen } : {}) };
@@ -165,8 +167,21 @@ export default function Workspace() {
 
   const current = MODES.find((m) => m.id === mode)!;
   const items = detail.data?.items ?? [];
+  savedCount.current = items.length;
   const readyCollections = (collections.data ?? []).filter((c) => c.documents_ready > 0);
   const hero = !conv && !live && tasks.length === 0;
+  // The live copy of a question or reply stops being shown the moment the saved conversation contains it, so the two are
+  // never on screen together (dropping the live state afterwards is only clean-up). Matched by the saved message id or
+  // the request id; by text and mode only among messages saved after this one was sent.
+  const liveId = typeof live?.meta?.request_id === "string" ? live.meta.request_id : null;
+  const doneId = typeof live?.done?.message_id === "number" ? live.done.message_id : null;
+  const fresh = live ? items.slice(live.sentAfter) : [];
+  const replySaved = !!live && ((doneId !== null && items.some((m) => m.id === doneId))
+    || (liveId !== null && items.some((m) => m.role === "assistant" && m.request_id === liveId))
+    || (live.phase === "error" && fresh.some((m) => m.role === "assistant" && m.mode === live.mode)));
+  const questionSaved = !!live && ((liveId !== null && items.some((m) => m.role === "user" && m.request_id === liveId))
+    || fresh.some((m) => m.role === "user" && m.mode === live.mode && m.content === live.question));
+  const shownLive = live && !replySaved ? live : null;
 
   // The core, from real state only: the health poll, this page's live reply, this session's task timelines, and the
   // last saved reply when it failed (so a failure stays visible until the next message).
@@ -174,7 +189,7 @@ export default function Workspace() {
   const core = deriveCore({
     backend: system.unreachable ? "down" : system.health ? "up" : "unknown",
     ollama: system.health?.ollama.status ?? null,
-    live: live ? { phase: live.phase, chunks: live.chunks, error: live.error?.code }
+    live: shownLive ? { phase: shownLive.phase, chunks: shownLive.chunks, error: shownLive.error?.code }
       : lastReply?.status === "error" ? { phase: "error", chunks: 0, error: lastReply.meta.code ?? "error" } : null,
     tasks: Object.values(taskState).map((t) => t.status),
   });
@@ -309,11 +324,11 @@ export default function Workspace() {
 
         <section aria-label="Conversation" className="space-y-6">
           {detail.error && <ErrorNote error={detail.error} title="This conversation cannot be loaded" />}
-          {!items.length && !live && !detail.error && (
+          {!items.length && !shownLive && !detail.error && (
             <Empty title="Nothing here yet">Send a message below. Everything stays on this computer.</Empty>
           )}
           {items.map((m) => <Turn key={m.id} m={m} />)}
-          {live && <LiveTurn live={live} />}
+          {shownLive && <LiveTurn live={shownLive} showQuestion={!questionSaved} />}
           <div ref={endRef} className="scroll-mb-56" />
         </section>
         <div className="sticky bottom-4 z-10 mt-6">{composer}</div>
@@ -445,11 +460,11 @@ function Turn({ m }: { m: Message }) {
   );
 }
 
-function LiveTurn({ live }: { live: Live }) {
+function LiveTurn({ live, showQuestion }: { live: Live; showQuestion: boolean }) {
   const streaming = live.phase === "streaming";
   return (
     <>
-      <UserBubble mode={live.mode} text={live.question} />
+      {showQuestion && <UserBubble mode={live.mode} text={live.question} />}
       <article aria-live="polite" className="signal max-w-[min(48rem,100%)] py-1 pl-5" data-live={streaming ? "true" : "false"}>
         <ReplyHeader mode={live.mode}>
           {streaming && <Status tone="active">Writing, not finished</Status>}

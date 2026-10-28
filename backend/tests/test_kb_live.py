@@ -30,7 +30,7 @@ from xodus.retrieval.citations import INSUFFICIENT_PHRASE
 pytestmark = pytest.mark.ollama
 OLLAMA = "http://127.0.0.1:11434"
 EMBED_MODEL = "qwen3-embedding:0.6b"
-GEN_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
+GEN_MODEL = "qwen3.5:4b"
 RESULTS: dict[str, object] = {}
 OUT = REPO_ROOT / "experiments" / "results" / "gate-d"
 

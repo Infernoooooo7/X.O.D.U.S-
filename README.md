@@ -9,7 +9,15 @@ prompt v2. Nothing here is deployed or exposed beyond `127.0.0.1`.
   your documents with checkable citations, run tasks with a live T+ timeline and inline approvals), History,
   Knowledge, Memory, Capabilities (catalogue, extensions, rejected manifests, forms generated from JSON Schema),
   Approvals, Activity (tasks and the audit log), Models (profiles and switching), Resources (every process with its
-  tier and memory, thresholds, pause and resume), Experiments and Settings. Light and dark, 360 px to desktop.
+  tier and memory, thresholds, pause and resume), Experiments and Settings. Dark by default with a light theme on
+  the brief's warm `#E6DED4` base (toggle on the top bar, in Settings and in Ctrl+K), 360 px to desktop.
+- **The core:** the animated orb in the Workspace (Canvas 2D, no 3D engine, no image files) shows only real state:
+  ready, thinking (request sent, no token yet), writing (tokens arriving), working on a task, waiting for your
+  approval, failed, or offline (backend or Ollama not available). The same state is written next to it in words.
+  It draws at most 30 frames per second, stops while the tab is hidden or the orb is off screen, and with Windows'
+  "animation effects" off (`prefers-reduced-motion`) it never animates: one still frame per state change.
+- **Ctrl+K** opens a command palette: every view, chat / ask / task modes, new conversation, theme, pause or resume
+  ingestion and audit-log verification. Each entry calls the same endpoint as the rest of the UI.
 - **Extensions:** plugins and MCP servers are folders in `plugins/`; two first-party samples ship (`text.stats`, a
   subprocess plugin, and `calc`, an MCP server). See `plugins/README.md`.
 - **Conversations** are saved; **model profiles** can be switched (one generation model loaded at a time).
@@ -39,7 +47,8 @@ See `docs/THREAT_MODEL.md` for what is enforced, what is tested and what is not.
 - Python 3.14 and [uv](https://docs.astral.sh/uv/) 0.11
 - Node.js 22 and npm (only to build the UI; no Node process runs at runtime)
 - Ollama 0.40.11 extracted to `%LOCALAPPDATA%\Programs\Ollama` (portable zip, no installer)
-- Model `qwen3:4b-instruct-2507-q4_K_M` (digest `0edcdef34593`)
+- Generation model `qwen3.5:4b` (digest `d8b0f5e9760c`, 3.32 GB), the only one XODUS uses; embedding model
+  `qwen3-embedding:0.6b` (digest `ac6da0dfba84`) for Knowledge
 
 ## Setup (once)
 
@@ -47,7 +56,8 @@ See `docs/THREAT_MODEL.md` for what is enforced, what is tested and what is not.
 cd backend;  uv sync;        cd ..
 cd frontend; npm ci; npm run build; cd ..    # writes frontend/out/ (static files only)
 scripts\start-ollama.ps1
-& "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" pull qwen3:4b-instruct-2507-q4_K_M
+& "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" pull qwen3.5:4b
+& "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" pull qwen3-embedding:0.6b
 ```
 
 `npm run dev` (in `frontend/`) starts the Next.js development server on 127.0.0.1 for UI work only: its pages call
@@ -70,6 +80,7 @@ Ollama would run on another computer (including a local alias of one) before sen
 reads how the running Ollama server was started and shows a warning if it listens beyond loopback, lacks
 `OLLAMA_NO_CLOUD=1`, has `OLLAMA_REMOTES` set or has a wildcard in `OLLAMA_ORIGINS`. Starting Ollama with
 `scripts\start-ollama.ps1` sets all of these. The check reports, it does not lock (see `docs/THREAT_MODEL.md`).
+Every data flow, what is stored on disk and what is not verified are listed in `docs/DATA_FLOWS.md`.
 
 ## Using the knowledge base (Gate D)
 

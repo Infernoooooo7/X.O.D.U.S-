@@ -356,7 +356,7 @@ def test_memory_create_approve_a_proposal_and_delete(page, make_settings, fake):
         expect(item).to_contain_text("extract-1")
         axe(page, "memory-proposed")
         item.get_by_role("button", name="Approve").click()
-        page.get_by_label("Status").select_option("")
+        page.get_by_label("Status", exact=True).select_option("")  # not the sidebar's "System status" region
         item = page.get_by_role("listitem").filter(has_text="The user lives in Oslo.")
         expect(item).to_contain_text("Approved")
         shot(page, "memory")
@@ -468,6 +468,7 @@ def test_every_view_passes_axe_and_fits_the_width(browser, make_settings, fake, 
             expect(pg.get_by_role("heading", level=1)).to_be_visible()
             pg.wait_for_timeout(800)
             no_horizontal_scroll(pg)
+            shot(pg, f"view-{view.strip('/') or 'workspace'}")
             axe(pg, view.strip("/") or "workspace")
         ctx.close()
 
@@ -514,9 +515,12 @@ def test_the_core_follows_real_states_only(page, make_settings, fake):
         expect(page.get_by_text("Waiting for the first token")).to_be_visible()
         expect(core(page)).to_have_attribute("data-core-state", "streaming", timeout=10_000)
         expect(page.get_by_text("Writing", exact=True)).to_be_visible()
+        question = page.locator(".prose-reply").filter(has_text="Count to eight.")
+        expect(question).to_have_count(1)  # the live copy and the saved copy are never shown together
         shot(page, "workspace-streaming")
         expect(core(page)).to_have_attribute("data-core-state", "idle", timeout=15_000)  # only after the backend's "done"
-        expect(page.get_by_role("article").filter(has_text="one two three four five six seven eight")).to_be_visible()
+        expect(page.get_by_role("article").filter(has_text="one two three four five six seven eight")).to_have_count(1)
+        expect(question).to_have_count(1)
         assert page.evaluate(INK) > 0
 
 
@@ -547,6 +551,8 @@ def test_the_core_stops_drawing_when_it_is_scrolled_out_of_view(browser, make_se
         pg = ctx.new_page()
         pg.goto(url)
         expect(core(pg)).to_have_attribute("data-animating", "true", timeout=10_000)
+        # room to scroll the core fully out of view (the page alone may be too short at this height)
+        pg.evaluate("() => document.querySelector('main').insertAdjacentHTML('beforeend', '<div style=\"height:3000px\"></div>')")
         pg.evaluate("() => window.scrollTo(0, document.documentElement.scrollHeight)")
         expect(core(pg)).to_have_attribute("data-animating", "false")
         pg.evaluate("() => window.scrollTo(0, 0)")
@@ -663,21 +669,16 @@ def test_live_chat_streams_a_real_answer(browser, real_app):
 
 
 @pytest.mark.ollama
-@pytest.mark.gpu
-def test_live_model_switch_and_back(browser, real_app):
-    """Real Ollama: default (8192) -> default-4k (4096 context) -> default. Records the measured switch times."""
+def test_live_models_view_offers_only_qwen35(browser, real_app):
+    """The checked-in configuration has one generation model, qwen3.5:4b: installed, digest-pinned and active."""
     with serve(real_app) as url:
         pg = browser.new_context(viewport=VIEWPORTS["desktop"]).new_page()
         pg.goto(url + "/models/")
-        timings = {}
-        for target, label in (("default-4k", "Default model, 4K context"), ("default", "Default")):
-            card = pg.get_by_role("article").filter(has=pg.get_by_role("heading", name=label, exact=True))
-            card.get_by_role("button", name="Switch to this profile").click()
-            pg.get_by_role("alertdialog").get_by_role("button", name=f"Switch to {label}").click()
-            note = pg.get_by_text(re.compile(rf"Switched to {re.escape(label)} in"))
-            expect(note).to_be_visible(timeout=180_000)
-            timings[target] = note.inner_text()
-            assert real_app.state.models.active_id == target
+        cards = pg.get_by_role("article")
+        expect(cards).to_have_count(1)
+        expect(cards.first).to_contain_text("qwen3.5:4b")
+        expect(cards.first).to_contain_text("matches the pin")
+        expect(cards.first.get_by_text("Active", exact=True)).to_be_visible()
+        expect(cards.first.get_by_role("button")).to_have_count(0)  # nothing to switch to
         pg.viewport_name = "desktop-live"
-        shot(pg, "live-model-switch")
-        print("\nLIVE SWITCH:", json.dumps(timings, indent=1))
+        shot(pg, "live-models")

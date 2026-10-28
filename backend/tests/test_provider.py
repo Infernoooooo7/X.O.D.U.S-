@@ -108,6 +108,17 @@ async def test_thinking_models_get_think_false_explicitly(make_settings, monkeyp
     assert fake.chats()[1]["think"] is True
 
 
+async def test_a_thinking_model_is_told_not_to_think_even_when_thinking_is_not_declared(make_settings):
+    """Qwen3.5 thinks by default: without think=false it can spend the whole output budget thinking and answer nothing."""
+    fake = FakeOllama(capabilities=["completion", "tools", "thinking"])  # declared: completion, structured, tools
+    p = provider(make_settings(), fake)
+    await p.generate([{"role": "user", "content": "x"}], BUDGET)
+    [chunk async for chunk in p.stream([{"role": "user", "content": "x"}], BUDGET)]
+    assert [c["think"] for c in fake.chats()] == [False, False]
+    with pytest.raises(CapabilityNotConfirmed, match="thinking"):  # asking for thinking still needs it declared
+        await p.generate([{"role": "user", "content": "x"}], RequestBudget(4096, 256, thinking=True))
+
+
 async def test_every_request_sets_num_ctx_and_output_limit(make_settings):
     fake = FakeOllama()
     p = provider(make_settings(), fake)

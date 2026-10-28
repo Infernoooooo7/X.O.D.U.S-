@@ -377,8 +377,11 @@ class OllamaProvider:
         if budget.thinking:
             await self._require("thinking")
             return {"think": True}
-        if self._confirmed is not None and "thinking" in self._confirmed:
-            return {"think": False}  # thinking models think by default; switch it off explicitly
+        # Thinking models think by default and can spend the whole output budget on it, answering nothing; so whenever
+        # Ollama reports the capability, switch it off explicitly, declared or not (only turning it ON needs a declaration).
+        if (self._confirmed is not None and "thinking" in self._confirmed) or (
+                self._info is not None and "thinking" in self._info.reported_capabilities):
+            return {"think": False}
         return {}
 
     async def _payload(self, messages: list[dict[str, Any]], budget: RequestBudget, seed: int | None, *,

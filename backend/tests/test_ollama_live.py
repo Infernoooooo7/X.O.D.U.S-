@@ -29,7 +29,7 @@ def test_configured_model_present_with_pinned_digest(real_settings):
         health = client.get("/api/health").json()
     assert health["ollama"]["status"] == "ok", health["ollama"]
     assert health["ollama"]["digest"].startswith(real_settings.ollama.expected_digest_prefix)
-    assert health["model_capabilities"]["confirmed"] == ["completion", "structured", "tools"]
+    assert health["model_capabilities"]["confirmed"] == ["completion", "structured", "thinking", "tools"]  # thinking: so it can be switched off
 
 
 def test_real_streamed_chat(real_settings):

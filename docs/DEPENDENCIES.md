@@ -44,13 +44,17 @@ versioned migration runner; they arrive with the PostgreSQL adapter if that is a
 | shadcn | 4.22.2 | shadcn/ui: its CLI wrote the component sources in `components/ui/`; its `tailwind.css` is imported at build time |
 | radix-ui | 1.8.1 | Accessible primitives behind those components (dialog, alert dialog, sheet, checkbox, label): focus trapping, Escape, ARIA |
 | class-variance-authority, cn | 0.7.1, 0.5.0 | Component variants and class merging used by the shadcn components (`cn` is shadcn's own package, MIT) |
-| lucide-react | 1.62.0 | One icon (the mobile menu button); tree-shaken, only used icons are bundled |
+| lucide-react | 1.62.0 | Line icons (navigation, palette, composer, quick actions); tree-shaken, only used icons are bundled |
 | tw-animate-css | 1.4.0 | Open and close transitions of dialogs; disabled under `prefers-reduced-motion` |
 
 All of the above end up as static files in `frontend/out/` (1.36 MB in total, measured after `npm run build`); no Node
 process runs at runtime. Fonts are local Windows fonts (Segoe UI Variable, Cascadia Mono): nothing is downloaded. The
 shadcn CLI's default preset added the Geist font through `next/font/google`, which downloads it at build time; that
 was removed.
+
+The Gate E visual redesign added **no package**: the animated core is the browser's own Canvas 2D API, the gauges are
+inline SVG, the motion is CSS, and the command palette is built on the existing radix-ui dialog. No 3D engine, font
+package, image file, CDN or remote asset is used.
 
 ## Frontend tests (development only)
 
@@ -71,7 +75,7 @@ psycopg (only with the PostgreSQL adapter, which was not approved).
 | Component | Version | Source | Size |
 |---|---|---|---|
 | Ollama (portable zip) | 0.40.11 | github.com/ollama/ollama releases, SHA-256 verified | 1.48 GB download, 2.08 GB extracted |
-| qwen3:4b-instruct-2507-q4_K_M | digest 0edcdef34593 | ollama.com library | 2.5 GB |
+| qwen3.5:4b | digest d8b0f5e9760c | ollama.com library (approved 27 Oct 2026; replaced qwen3:4b-instruct-2507-q4_K_M, which was removed) | 3.32 GB on disk |
 | qwen3-embedding:0.6b | digest ac6da0dfba84 (checked after the pull) | ollama.com library (approved 27 Oct 2026) | 639 MB download; 1,024-dimension vectors; native context 32,768 |
 
 ## Runtime footprint (measured, smoke benchmark of 27 Oct 2026, Gate C code)
