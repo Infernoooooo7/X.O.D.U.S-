@@ -13,7 +13,8 @@ import asyncio
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
@@ -46,6 +47,7 @@ class ManagedProcess:
     popen: subprocess.Popen[bytes]
     job: JobObject
     last_used: float = 0.0
+    calls_in_flight: int = 0  # > 0 while a capability call is using the process: never "idle"
     stderr_path: Path | None = None
     _stderr: IO[bytes] | None = field(default=None, repr=False)
 
@@ -71,6 +73,8 @@ class Supervisor:
         self._clock = clock
         self._lock = threading.Lock()
         self._procs: dict[tuple[int, float], ManagedProcess] = {}
+        # Set by the resource governor: returns a reason while new optional processes must be refused (warn and stop).
+        self.optional_admission: Callable[[], str | None] | None = None
 
     def _record(self, event: str, **fields: Any) -> None:
         log_event(event, **fields)
@@ -96,6 +100,9 @@ class Supervisor:
             raise ValueError(f"unknown tier {tier!r}")
         idle = (self.idle_timeout_s if tier == "optional" else None) if idle_timeout_s is _DEFAULT else idle_timeout_s
         limit = (self.memory_limit_bytes if tier == "optional" else None) if memory_limit_bytes is _DEFAULT else memory_limit_bytes
+        refused = self.optional_admission() if tier == "optional" and self.optional_admission is not None else None
+        if refused:
+            raise SupervisorLimit(refused)
         with self._lock:
             running_optional = sum(1 for p in self._procs.values() if p.tier == "optional")
             if tier == "optional" and running_optional >= self.max_optional:
@@ -138,6 +145,23 @@ class Supervisor:
 
     def touch(self, mp: ManagedProcess) -> None:
         mp.last_used = self._clock()
+
+    @contextmanager
+    def in_use(self, mp: ManagedProcess) -> Iterator[None]:
+        """Mark a process as serving a call, so the resource governor never stops it half-way through."""
+        mp.calls_in_flight += 1
+        self.touch(mp)
+        try:
+            yield
+        finally:
+            mp.calls_in_flight -= 1
+            self.touch(mp)
+
+    def idle_optional(self, grace_s: float) -> list[ManagedProcess]:
+        """Optional processes serving no call and unused for at least grace_s."""
+        now = self._clock()
+        return [mp for mp in self.managed()
+                if mp.tier == "optional" and mp.calls_in_flight == 0 and now - mp.last_used >= grace_s]
 
     def managed(self) -> list[ManagedProcess]:
         with self._lock:

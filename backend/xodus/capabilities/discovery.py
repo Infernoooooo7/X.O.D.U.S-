@@ -26,6 +26,7 @@ from xodus.capabilities.mcp_client import McpServer, McpToolCapability
 from xodus.capabilities.plugin_runner import SubprocessCapability
 from xodus.capabilities.registry import CapabilityRegistry
 from xodus.config.settings import Settings
+from xodus.security import secrets as known_secrets
 from xodus.security.paths import PathViolation, is_link
 from xodus.security.policy import PermissionPolicy
 from xodus.supervisor.supervisor import Supervisor
@@ -182,6 +183,7 @@ def _secrets(registry: CapabilityRegistry, settings: Settings, source: str, ref:
             missing.append(f"approved secret {name!r} has no value (set XODUS_SECRET_{name})")
         else:
             secrets[name] = value
+            known_secrets.register(value)  # scrubbed from logs, the audit log and model prompts from now on
     if missing:
         registry.reject(source, ref, missing)
         return None

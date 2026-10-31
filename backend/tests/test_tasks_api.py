@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 import time
 
-from fastapi.testclient import TestClient
 
-from tests.helpers import ScriptedProvider, WriteNote, tool_call
+from tests.helpers import ScriptedProvider, WriteNote, tool_call, api_client
 from xodus.api.app import create_app
 from xodus.providers.base import Completion
 
@@ -20,7 +19,7 @@ def client_for(settings, provider, extra=None):
     app = create_app(settings, provider=provider)
     for cap in extra or []:
         app.state.registry.register(cap, "test")
-    return TestClient(app, base_url="http://127.0.0.1")
+    return api_client(app)
 
 
 def wait_status(client, task_id, statuses, timeout=10):

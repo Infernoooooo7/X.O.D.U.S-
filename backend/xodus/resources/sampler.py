@@ -80,7 +80,12 @@ def read_process(proc: psutil.Process, group: str, tier: str) -> ProcessSample:
     except psutil.Error as exc:
         return ProcessSample(pid=proc.pid, name="?", group=group, tier=tier, errors=[type(exc).__name__])
     try:
-        full = proc.memory_full_info()
+        try:
+            full = proc.memory_full_info()
+        except psutil.AccessDenied:
+            # Measured in the Gate B smoke benchmark: a single read of ollama.exe was refused once in 146 samples while
+            # a runner started. One retry in the same tick; a second refusal is reported, never guessed.
+            full = proc.memory_full_info()
         sample.rss, sample.uss, sample.private_commit = full.rss, full.uss, full.vms
     except psutil.AccessDenied:
         sample.errors.append("uss: AccessDenied (needs elevation)")
@@ -92,6 +97,11 @@ def read_process(proc: psutil.Process, group: str, tier: str) -> ProcessSample:
     except psutil.Error as exc:
         sample.errors.append(f"memory_full_info: {type(exc).__name__}")
     return sample
+
+
+def vanished(sample: ProcessSample) -> bool:
+    """True if the process exited while it was being read (Ollama starts short-lived probe runners, for example)."""
+    return any("NoSuchProcess" in e for e in sample.errors)
 
 
 class GpuCounters:
@@ -238,6 +248,8 @@ class ResourceSampler:
         samples = []
         for proc, group, tier in self.processes():
             sample = read_process(proc, group, tier)
+            if vanished(sample):
+                continue  # exited between listing and reading: it holds no memory, and it is not an unreadable value
             if proc.pid in gpu_by_pid:
                 sample.gpu_dedicated, sample.gpu_shared = gpu_by_pid[proc.pid]
             samples.append(sample)
@@ -257,6 +269,10 @@ class ResourceSampler:
                 "uss_optional": total("uss", "optional"),
                 "gpu_dedicated_ollama": total("gpu_dedicated", "ollama"),
                 "gpu_shared_ollama": total("gpu_shared", "ollama"),
+                # Every XODUS-related process, from the per-process Windows counters: XODUS's own VRAM, and the system RAM
+                # used on the GPU's behalf (shared GPU memory: spill or pinned staging memory).
+                "gpu_dedicated_xodus": total("gpu_dedicated"),
+                "gpu_shared_xodus": total("gpu_shared"),
             },
             "uss_complete": all(s.uss is not None for s in samples),
             "device_vram": self.nvml.memory(),
@@ -285,4 +301,5 @@ __all__ = [
     "process_tree",
     "read_process",
     "system_memory",
+    "vanished",
 ]

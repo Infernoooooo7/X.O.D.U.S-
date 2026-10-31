@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
 from xodus.capabilities.list_files import ListFiles
@@ -25,6 +26,13 @@ from xodus.security.approvals import ApprovalStore
 from xodus.security.audit import AuditLog
 from xodus.security.paths import atomic_write_bytes, resolve_new_file
 from xodus.security.policy import PermissionPolicy, Root
+from xodus.security.token import HEADER as TOKEN_HEADER
+
+
+def api_client(app: Any, **kwargs: Any) -> TestClient:
+    """A TestClient that sends the per-install API token, as scripts do (the UI sends it as a cookie)."""
+    kwargs.setdefault("base_url", "http://127.0.0.1")
+    return TestClient(app, headers={TOKEN_HEADER: app.state.api_token}, **kwargs)
 
 
 def tool_call(name: str, args: Any) -> Completion:

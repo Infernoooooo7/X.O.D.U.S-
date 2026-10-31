@@ -422,7 +422,7 @@ def test_resource_view_extensions_and_process_control(page, kb_settings, fake, m
         page.keyboard.press("Escape")
 
         page.goto(url + "/resources/")
-        expect(page.get_by_text("Levels are evaluated and shown only")).to_be_visible()
+        expect(page.get_by_text("Levels are shown only")).to_be_visible()  # the governor is off in tests (conftest)
         expect(page.get_by_text("Optional helpers and plugins").filter(visible=True).first).to_be_visible()
         expect(page.get_by_text("Browser tab").filter(visible=True).first).to_be_visible()
         plugin = page.get_by_role("listitem").filter(has_text="plugin: text.stats")

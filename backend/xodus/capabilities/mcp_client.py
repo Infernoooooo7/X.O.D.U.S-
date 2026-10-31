@@ -276,34 +276,38 @@ class McpServer:
     async def call(self, tool: McpToolManifest, args: dict[str, Any], ctx: InvocationContext) -> dict[str, Any]:
         async with self._lock:
             proc = await self._ensure_ready()
-            if tool.mcp_tool in self.drift:
-                raise PluginError(f"{tool.id} is disabled: {self.drift[tool.mcp_tool]}.")
-            try:
-                result = await self._request(proc, "tools/call", {"name": tool.mcp_tool, "arguments": args},
-                                             time.monotonic() + tool.timeout_s, tool.max_output_bytes)
-            except _Deadline:
-                self._fail()
-                await self._kill("timeout")
-                raise CapabilityTimeout(f"{tool.id} did not answer within {tool.timeout_s:.0f} s; the MCP server was stopped.") from None
-            except asyncio.CancelledError:
-                ctx.cancel.set()
-                await asyncio.shield(self._kill("cancelled"))
-                raise
-            except LineTooLong:
-                self._fail()
-                await self._kill("output too large")
-                raise OutputTooLarge(f"{tool.id} produced more than {tool.max_output_bytes} bytes; the output was discarded "
-                                     "and the MCP server stopped.") from None
-            except (ProcessExited, OSError):
-                self._fail()
-                await self._kill("crashed")
-                raise PluginCrashed(f"MCP server {self.manifest.id} exited unexpectedly during {tool.id}.") from None
-            except McpProtocolError:
-                self._fail()
-                await self._kill("protocol violation")
-                raise
-            self.supervisor.touch(proc)
-            return self._unwrap(tool, result)
+            with self.supervisor.in_use(proc):  # never stopped as idle by the resource governor mid-call
+                return await self._call(proc, tool, args, ctx)
+
+    async def _call(self, proc: ManagedProcess, tool: McpToolManifest, args: dict[str, Any], ctx: InvocationContext) -> dict[str, Any]:
+        if tool.mcp_tool in self.drift:
+            raise PluginError(f"{tool.id} is disabled: {self.drift[tool.mcp_tool]}.")
+        try:
+            result = await self._request(proc, "tools/call", {"name": tool.mcp_tool, "arguments": args},
+                                         time.monotonic() + tool.timeout_s, tool.max_output_bytes)
+        except _Deadline:
+            self._fail()
+            await self._kill("timeout")
+            raise CapabilityTimeout(f"{tool.id} did not answer within {tool.timeout_s:.0f} s; the MCP server was stopped.") from None
+        except asyncio.CancelledError:
+            ctx.cancel.set()
+            await asyncio.shield(self._kill("cancelled"))
+            raise
+        except LineTooLong:
+            self._fail()
+            await self._kill("output too large")
+            raise OutputTooLarge(f"{tool.id} produced more than {tool.max_output_bytes} bytes; the output was discarded "
+                                 "and the MCP server stopped.") from None
+        except (ProcessExited, OSError):
+            self._fail()
+            await self._kill("crashed")
+            raise PluginCrashed(f"MCP server {self.manifest.id} exited unexpectedly during {tool.id}.") from None
+        except McpProtocolError:
+            self._fail()
+            await self._kill("protocol violation")
+            raise
+        self.supervisor.touch(proc)
+        return self._unwrap(tool, result)
 
     def _unwrap(self, tool: McpToolManifest, result: dict[str, Any]) -> dict[str, Any]:
         content = result.get("content") if isinstance(result.get("content"), list) else []

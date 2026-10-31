@@ -1,0 +1,54 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+5 0 obj
+<< /Length 2217 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (Python Library Documentation: module textwrap) Tj T* (NAME) Tj T* (textwrap - Text wrapping and filling.) Tj T* (MODULE REFERENCE) Tj T* (https://docs.python.org/3.14/library/textwrap.html) Tj T* (The following documentation is automatically generated from the Python) Tj T* (source files.  It may be incomplete, incorrect or include features that) Tj T* (are considered implementation detail and may vary between Python) Tj T* (implementations.  When in doubt, consult the module reference at the) Tj T* (location listed above.) Tj T* (CLASSES) Tj T* (builtins.object) Tj T* (TextWrapper) Tj T* (class TextWrapper\(builtins.object\)) Tj T* (|  TextWrapper\() Tj T* (|      width=70,) Tj T* (|      initial_indent='',) Tj T* (|      subsequent_indent='',) Tj T* (|      expand_tabs=True,) Tj T* (|      replace_whitespace=True,) Tj T* (|      fix_sentence_endings=False,) Tj T* (|      break_long_words=True,) Tj T* (|      drop_whitespace=True,) Tj T* (|      break_on_hyphens=True,) Tj T* (|      tabsize=8,) Tj T* (|      *,) Tj T* (|      max_lines=None,) Tj T* (|      placeholder=' [...]') Tj T* (|  \)) Tj T* (|) Tj T* (|  Object for wrapping/filling text.  The public interface consists of) Tj T* (|  the wrap\(\) and fill\(\) methods; the other methods are just there for) Tj T* (|  subclasses to override in order to tweak the default behaviour.) Tj T* (|  If you want to completely replace the main wrapping algorithm,) Tj T* (|  you'll probably have to override _wrap_chunks\(\).) Tj T* (|) Tj T* (|  Several instance attributes control various aspects of wrapping:) Tj T* (|    width \(default: 70\)) Tj T* (|      the maximum width of wrapped lines \(unless break_long_words) Tj T* (|      is false\)) Tj T* (|    initial_indent \(default: ""\)) Tj T* (|      string that will be prepended to the first line of wrapped) Tj T* (|      output.  Counts towards the line's width.) Tj T* (|    subsequent_indent \(default: ""\)) Tj T* (|      string that will be prepended to all lines save the first) Tj T* (|      of wrapped output; also counts towards each line's width.) Tj T* (|    expand_tabs \(default: true\)) Tj T* (|      Expand tabs in input text to spaces ) Tj T* ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 7 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+7 0 obj
+<< /Length 2197 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (before further processing.) Tj T* (|      Each tab will become 0 .. 'tabsize' spaces, depending on its position) Tj T* (|      in its line.  If false, each tab is treated as a single character.) Tj T* (|    tabsize \(default: 8\)) Tj T* (|      Expand tabs in input text to 0 .. 'tabsize' spaces, unless) Tj T* (|      'expand_tabs' is false.) Tj T* (|    replace_whitespace \(default: true\)) Tj T* (|      Replace all whitespace characters in the input text by spaces) Tj T* (|      after tab expansion.  Note that if expand_tabs is false and) Tj T* (|      replace_whitespace is true, every tab will be converted to a) Tj T* (|      single space!) Tj T* (|    fix_sentence_endings \(default: false\)) Tj T* (|      Ensure that sentence-ending punctuation is always followed) Tj T* (|      by two spaces.  Off by default because the algorithm is) Tj T* (|      \(unavoidably\) imperfect.) Tj T* (|    break_long_words \(default: true\)) Tj T* (|      Break words longer than 'width'.  If false, those words will not) Tj T* (|      be broken, and some lines might be longer than 'width'.) Tj T* (|    break_on_hyphens \(default: true\)) Tj T* (|      Allow breaking hyphenated words. If true, wrapping will occur) Tj T* (|      preferably on whitespaces and right after hyphens part of) Tj T* (|      compound words.) Tj T* (|    drop_whitespace \(default: true\)) Tj T* (|      Drop leading and trailing whitespace from lines.) Tj T* (|    max_lines \(default: None\)) Tj T* (|      Truncate wrapped lines.) Tj T* (|    placeholder \(default: ' [...]'\)) Tj T* (|      Append to the last line of truncated text.) Tj T* (|) Tj T* (|  Methods defined here:) Tj T* (|) Tj T* (|  __init__\() Tj T* (|      self,) Tj T* (|      width=70,) Tj T* (|      initial_indent='',) Tj T* (|      subsequent_indent='',) Tj T* (|      expand_tabs=True,) Tj T* (|      replace_whitespace=True,) Tj T* (|      fix_sentence_endings=False,) Tj T* (|      break_long_words=True,) Tj T* (|      drop_whitespace=True,) Tj T* (|      break_on_hyphens=True,) Tj T* (|      tabsize=8,) Tj T* (|      *,) Tj T* (|      max_lines=None,) Tj T* (|      placeholder=' [...]') Tj T* (|  ) Tj T* ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 9 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+9 0 obj
+<< /Length 2219 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (\)) Tj T* (|      Initialize self.  See help\(type\(self\)\) for accurate signature.) Tj T* (|) Tj T* (|  fill\(self, text\)) Tj T* (|      fill\(text : string\) -> string) Tj T* (|) Tj T* (|      Reformat the single paragraph in 'text' to fit in lines of no) Tj T* (|      more than 'self.width' columns, and return a new string) Tj T* (|      containing the entire wrapped paragraph.) Tj T* (|) Tj T* (|  wrap\(self, text\)) Tj T* (|      wrap\(text : string\) -> [string]) Tj T* (|) Tj T* (|      Reformat the single paragraph in 'text' so it fits in lines of) Tj T* (|      no more than 'self.width' columns, and return a list of wrapped) Tj T* (|      lines.  Tabs in 'text' are expanded with string.expandtabs\(\),) Tj T* (|      and all other whitespace characters \(including newline\) are) Tj T* (|      converted to space.) Tj T* (|) Tj T* (|  ----------------------------------------------------------------------) Tj T* (|  Data descriptors defined here:) Tj T* (|) Tj T* (|  __dict__) Tj T* (|      dictionary for instance variables) Tj T* (|) Tj T* (|  __weakref__) Tj T* (|      list of weak references to the object) Tj T* (|) Tj T* (|  ----------------------------------------------------------------------) Tj T* (|  Data and other attributes defined here:) Tj T* (|) Tj T* (|  sentence_end_re = re.compile\('[a-z][\\\\.\\\\!\\\\?][\\\\"\\\\\\']?\\\\z'\)) Tj T* (|) Tj T* (|  unicode_whitespace_trans = {9: 32, 10: 32, 11: 32, 12: 32, 13: 32, 32:...) Tj T* (|) Tj T* (|  wordsep_re = re.compile\('\\n        \( # any whitespace\\n      ...# word...) Tj T* (|) Tj T* (|  wordsep_simple_re = re.compile\('\([\\\\\\t\\\\\\n\\\\\\x0b\\\\\\x0c\\\\\\r\\\\ ]+\)'\)) Tj T* (FUNCTIONS) Tj T* (dedent\(text\)) Tj T* (Remove any common leading whitespace from every line in `text`.) Tj T* (This can be used to make triple-quoted strings line up with the left) Tj T* (edge of the display, while still presenting them in the source code) Tj T* (in indented form.) Tj T* (Note that tabs and spaces are both treated as whitespace, but they) Tj T* (are not equal: the lines "  hello" and "\\thello" are) Tj T* (considered to have no common leading whitespace.) Tj T* (Entirely ) Tj T* ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000323 00000 n 
+0000002592 00000 n 
+0000002718 00000 n 
+0000004967 00000 n 
+0000005093 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+7364
+%%EOF

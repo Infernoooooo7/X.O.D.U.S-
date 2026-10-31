@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from xodus.resources.sampler import GpuCounters, Nvml, ResourceSampler, read_process, system_memory
+from xodus.resources.sampler import GpuCounters, Nvml, ResourceSampler, read_process, system_memory, vanished
 import psutil
 
 
@@ -13,6 +13,18 @@ def test_own_process_uss_is_readable():
     assert sample.uss and sample.rss and sample.private_commit
     assert sample.uss <= sample.rss
     assert not sample.errors
+
+
+def test_a_process_that_exits_while_sampled_is_dropped_not_unreadable():
+    import subprocess
+    import sys
+
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    handle = psutil.Process(proc.pid)
+    proc.wait()
+    sample = read_process(handle, "ollama", "core")
+    assert vanished(sample) and sample.uss is None
+    assert not vanished(read_process(psutil.Process(), "xodus_app", "core"))
 
 
 def test_system_memory():

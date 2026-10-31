@@ -144,9 +144,9 @@ class ModelSettings(_Section):
 
 
 class ThresholdSettings(_Section):
-    """Master prompt 3.7 (TARGET values). GB means 10^9 bytes. Evaluated and shown in the resource view; automatic
-    throttling on these levels is not implemented yet (Gate F). VRAM is device-wide (NVML), so it includes other
-    applications' use of the GPU: whether it should be measured against an idle baseline is an open decision."""
+    """Master prompt 3.7 (TARGET values). GB means 10^9 bytes. Enforced by the resource governor (Gate F). The USS check
+    adds the shared GPU memory of XODUS processes; the VRAM check is XODUS's own dedicated GPU memory (user decision,
+    29 Oct 2026), not device-wide use. See xodus/resources/thresholds.py."""
 
     warn_uss_gb: float = Field(3.6, gt=0)
     stop_uss_gb: float = Field(5.5, gt=0)
@@ -154,6 +154,9 @@ class ThresholdSettings(_Section):
     stop_vram_gb: float = Field(4.8, gt=0)
     stop_available_gb: float = Field(1.5, ge=0)
     recover_after_s: float = Field(30.0, gt=0)
+    enforce: bool = True  # false: levels are shown only, nothing is paused or refused
+    check_interval_s: float = Field(2.0, ge=0.1, le=60)  # one sampler snapshot (~60-75 ms of one thread) per check
+    idle_grace_s: float = Field(10.0, ge=0)  # an optional process unused this long counts as idle at the warn level
 
     @model_validator(mode="after")
     def _ordered(self) -> ThresholdSettings:

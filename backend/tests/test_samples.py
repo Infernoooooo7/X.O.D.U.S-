@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import _ollama_up
-from tests.helpers import ScriptedProvider, tool_call
+from tests.helpers import ScriptedProvider, tool_call, api_client
 from xodus.api.app import create_app
 from xodus.config.settings import CONFIG_DIR, REPO_ROOT, load_settings
 from xodus.providers.base import Completion
@@ -39,7 +39,7 @@ def client(make_settings, fake_ollama, monkeypatch):
     opened = []
 
     def make(provider=None) -> TestClient:
-        c = TestClient(create_app(make_settings(base_url=fake_ollama.url), provider=provider), base_url="http://127.0.0.1")
+        c = api_client(create_app(make_settings(base_url=fake_ollama.url), provider=provider))
         c.__enter__()
         opened.append(c)
         return c
@@ -166,7 +166,7 @@ def test_live_model_uses_the_calculator(tmp_path, monkeypatch):
         pytest.skip("Ollama is not running on 127.0.0.1:11434")
     monkeypatch.setenv("XODUS_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("XODUS_LOG_DIR", str(tmp_path / "logs"))
-    with TestClient(create_app(load_settings([CONFIG_DIR / "default.toml"])), base_url="http://127.0.0.1") as c:
+    with api_client(create_app(load_settings([CONFIG_DIR / "default.toml"]))) as c:
         task_id = c.post("/api/tasks", json={"goal": "What is 1234.5 multiplied by 6.789? Use the calculator tool."}).json()["task_id"]
         deadline = time.time() + 240
         while c.get(f"/api/tasks/{task_id}").json()["status"] not in ("completed", "error", "failed_safe", "step_limit",

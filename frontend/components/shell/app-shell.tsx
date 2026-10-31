@@ -111,15 +111,14 @@ function HealthLines({ health }: { health: Health }) {
 function Meters({ r }: { r: ResourceSummary }) {
   const check = (metric: string) => r.thresholds.checks.find((c) => c.metric === metric);
   const uss = check("xodus_uss");
-  const vram = check("device_vram");
+  const vram = check("xodus_vram");
   const free = check("system_available");
-  const gib = (mib: number) => (mib / 1024).toFixed(1);
   return (
     <div className="mt-3 space-y-2 border-t border-border pt-3 text-xs">
       <Meter label="XODUS memory" value={uss?.value_gb != null ? `${uss.value_gb.toFixed(2)} GB` : "n/a"}
         fraction={uss?.value_gb != null ? uss.value_gb / uss.stop_gb : null} level={uss?.level} />
-      <Meter label="GPU memory (all apps)" value={r.device_vram ? `${gib(r.device_vram.used)} / ${gib(r.device_vram.total)} GiB` : "n/a"}
-        fraction={r.device_vram ? r.device_vram.used / r.device_vram.total : null} level={vram?.level} />
+      <Meter label="XODUS GPU memory" value={vram?.value_gb != null ? `${vram.value_gb.toFixed(2)} GB` : "n/a"}
+        fraction={vram?.value_gb != null ? vram.value_gb / vram.stop_gb : null} level={vram?.level} />
       <Meter label="RAM available" value={free?.value_gb != null ? `${free.value_gb.toFixed(1)} GB` : "n/a"} fraction={null} level={free?.level} />
       <p className="text-muted-foreground">Measured by the backend every 15 s.</p>
     </div>

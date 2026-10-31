@@ -11,9 +11,8 @@ import json
 import time
 
 import pytest
-from fastapi.testclient import TestClient
 
-from tests.helpers import WriteNote, audit_events, default_budget, make_deps, run_task
+from tests.helpers import WriteNote, audit_events, default_budget, make_deps, run_task, api_client
 from tests.test_api import parse_sse
 from xodus.api.app import create_app
 from xodus.providers.base import RequestBudget, ToolSpec
@@ -25,7 +24,7 @@ RESULTS: dict[str, object] = {}
 
 
 def test_configured_model_present_with_pinned_digest(real_settings):
-    with TestClient(create_app(real_settings), base_url="http://127.0.0.1") as client:
+    with api_client(create_app(real_settings)) as client:
         health = client.get("/api/health").json()
     assert health["ollama"]["status"] == "ok", health["ollama"]
     assert health["ollama"]["digest"].startswith(real_settings.ollama.expected_digest_prefix)
@@ -33,7 +32,7 @@ def test_configured_model_present_with_pinned_digest(real_settings):
 
 
 def test_real_streamed_chat(real_settings):
-    with TestClient(create_app(real_settings), base_url="http://127.0.0.1") as client:
+    with api_client(create_app(real_settings)) as client:
         body = client.post("/api/chat", json={"message": "Reply with exactly the word: ready", "seed": 1}).text
     events = parse_sse(body)
     kinds = [e for e, _ in events]
@@ -92,7 +91,7 @@ async def test_multi_capability_plan_schema_is_accepted_by_ollama(real_settings,
 
 @pytest.mark.parametrize("arm", ["react", "plan_execute"])
 def test_real_task_on_the_example_sandbox(real_settings, arm):
-    with TestClient(create_app(real_settings), base_url="http://127.0.0.1") as client:
+    with api_client(create_app(real_settings)) as client:
         task_id = client.post("/api/tasks", json={"goal": "Which files are in the notes folder of my sandbox?",
                                                   "arm": arm}).json()["task_id"]
         events = [json.loads(b.split("data: ", 1)[1]) for b in client.get(f"/api/tasks/{task_id}/events").text.strip().split("\n\n")]

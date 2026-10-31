@@ -1,0 +1,190 @@
+Python Library Documentation: module tempfile
+
+NAME
+    tempfile - Temporary files.
+
+MODULE REFERENCE
+    https://docs.python.org/3.14/library/tempfile.html
+
+    The following documentation is automatically generated from the Python
+    source files.  It may be incomplete, incorrect or include features that
+    are considered implementation detail and may vary between Python
+    implementations.  When in doubt, consult the module reference at the
+    location listed above.
+
+DESCRIPTION
+    This module provides generic, low- and high-level interfaces for
+    creating temporary files and directories.  All of the interfaces
+    provided by this module can be used without fear of race conditions
+    except for 'mktemp'.  'mktemp' is subject to race conditions and
+    should not be used; it is provided for backward compatibility only.
+
+    The default path names are returned as str.  If you supply bytes as
+    input, all return values will be in bytes.  Ex:
+
+        >>> tempfile.mkstemp()
+        (4, '/tmp/tmptpu9nin8')
+        >>> tempfile.mkdtemp(suffix=b'')
+        b'/tmp/tmppbi8f0hy'
+
+    This module also provides some data items to the user:
+
+      TMP_MAX  - maximum number of names that will be tried before
+                 giving up.
+      tempdir  - If this is set to a string before the first use of
+                 any routine from this module, it will be considered as
+                 another candidate location to store temporary files.
+
+CLASSES
+    builtins.object
+        TemporaryDirectory
+    io.IOBase(_io._IOBase)
+        SpooledTemporaryFile
+
+    class SpooledTemporaryFile(io.IOBase)
+     |  SpooledTemporaryFile(
+     |      max_size=0,
+     |      mode='w+b',
+     |      buffering=-1,
+     |      encoding=None,
+     |      newline=None,
+     |      suffix=None,
+     |      prefix=None,
+     |      dir=None,
+     |      *,
+     |      errors=None
+     |  )
+     |
+     |  Temporary file wrapper, specialized to switch from BytesIO
+     |  or StringIO to a real file when it exceeds a certain size or
+     |  when a fileno is needed.
+     |
+     |  Method resolution order:
+     |      SpooledTemporaryFile
+     |      io.IOBase
+     |      _io._IOBase
+     |      builtins.object
+     |
+     |  Methods defined here:
+     |
+     |  __del__(self)
+     |      Called when the instance is about to be destroyed.
+     |
+     |  __enter__(self)
+     |      # Context management protocol
+     |
+     |  __exit__(self, exc, value, tb)
+     |
+     |  __init__(
+     |      self,
+     |      max_size=0,
+     |      mode='w+b',
+     |      buffering=-1,
+     |      encoding=None,
+     |      newline=None,
+     |      suffix=None,
+     |      prefix=None,
+     |      dir=None,
+     |      *,
+     |      errors=None
+     |  )
+     |      Initialize self.  See help(type(self)) for accurate signature.
+     |
+     |  __iter__(self)
+     |      Implement iter(self).
+     |
+     |  close(self)
+     |      Flush and close the IO object.
+     |
+     |      This method has no effect if the file is already closed.
+     |
+     |  detach(self)
+     |
+     |  fileno(self)
+     |      Return underlying file descriptor if one exists.
+     |
+     |      Raise OSError if the IO object does not use a file descriptor.
+     |
+     |  flush(self)
+     |      Flush write buffers, if applicable.
+     |
+     |      This is not implemented for read-only and non-blocking streams.
+     |
+     |  isatty(self)
+     |      Return whether this is an 'interactive' stream.
+     |
+     |      Return False if it can't be determined.
+     |
+     |  read(self, *args)
+     |
+     |  read1(self, *args)
+     |
+     |  readable(self)
+     |      Return whether object was opened for reading.
+     |
+     |      If False, read() will raise OSError.
+     |
+     |  readinto(self, b)
+     |
+     |  readinto1(self, b)
+     |
+     |  readline(self, *args)
+     |      Read and return a line from the stream.
+     |
+     |      If size is specified, at most size bytes will be read.
+     |
+     |      The line terminator is always b'\n' for binary files; for text
+     |      files, the newlines argument to open can be used to select the line
+     |      terminator(s) recognized.
+     |
+     |  readlines(self, *args)
+     |      Return a list of lines from the stream.
+     |
+     |      hint can be specified to control the number of lines read: no more
+     |      lines will be read if the total size (in bytes/characters) of all
+     |      lines so far exceeds hint.
+     |
+     |  rollover(self)
+     |
+     |  seek(self, *args)
+     |      Change the stream position to the given byte offset.
+     |
+     |        offset
+     |          The stream position, relative to 'whence'.
+     |        whence
+     |          The relative position to seek from.
+     |
+     |      The offset is interpreted relative to the position indicated by whence.
+     |      Values for whence are:
+     |
+     |      * os.SEEK_SET or 0 -- start of stream (the default); offset should be zero or positive
+     |      * os.SEEK_CUR or 1 -- current stream position; offset may be negative
+     |      * os.SEEK_END or 2 -- end of stream; offset is usually negative
+     |
+     |      Return the new absolute position.
+     |
+     |  seekable(self)
+     |      Return whether object supports random access.
+     |
+     |      If False, seek(), tell() and truncate() will raise OSError.
+     |      This method may need to do a test seek().
+     |
+     |  tell(self)
+     |      Return current stream position.
+     |
+     |  truncate(self, size=None)
+     |      Truncate file to size bytes.
+     |
+     |      File pointer is left unchanged. Size defaults to the current IO position
+     |      as reported by tell(). Return the new size.
+     |
+     |  writable(self)
+     |      Return whether object was opened for writing.
+     |
+     |      If False, write() will raise OSError.
+     |
+     |  write(self, s)
+     |
+     |  writelines(self, iterable)
+     |      Write a list of lines to stream.
+  

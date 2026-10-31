@@ -1,0 +1,54 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+5 0 obj
+<< /Length 2209 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (Python Library Documentation: module statistics) Tj T* (NAME) Tj T* (statistics - Basic statistics module.) Tj T* (MODULE REFERENCE) Tj T* (https://docs.python.org/3.14/library/statistics.html) Tj T* (The following documentation is automatically generated from the Python) Tj T* (source files.  It may be incomplete, incorrect or include features that) Tj T* (are considered implementation detail and may vary between Python) Tj T* (implementations.  When in doubt, consult the module reference at the) Tj T* (location listed above.) Tj T* (DESCRIPTION) Tj T* (This module provides functions for calculating statistics of data, including) Tj T* (averages, variance, and standard deviation.) Tj T* (Calculating averages) Tj T* (--------------------) Tj T* (==================  ==================================================) Tj T* (Function            Description) Tj T* (==================  ==================================================) Tj T* (mean                Arithmetic mean \(average\) of data.) Tj T* (fmean               Fast, floating-point arithmetic mean.) Tj T* (geometric_mean      Geometric mean of data.) Tj T* (harmonic_mean       Harmonic mean of data.) Tj T* (median              Median \(middle value\) of data.) Tj T* (median_low          Low median of data.) Tj T* (median_high         High median of data.) Tj T* (median_grouped      Median, or 50th percentile, of grouped data.) Tj T* (mode                Mode \(most common value\) of data.) Tj T* (multimode           List of modes \(most common values of data\).) Tj T* (quantiles           Divide data into intervals with equal probability.) Tj T* (==================  ==================================================) Tj T* (Calculate the arithmetic mean \("the average"\) of data:) Tj T* (>>> mean\([-1.0, 2.5, 3.25, 5.75]\)) Tj T* (2.625) Tj T* (Calculate the standard median of discrete data:) Tj T* (>>> median\([2, 3, 4, 5]\)) Tj T* (3.5) Tj T* (Calculate the median, or 50th percentile, of data grouped into class intervals) Tj T* (centred on the data values provided. E.g. if your data points are rounded to) Tj T* (the nearest whole number:) Tj T* (>>> median_grouped\([2) Tj T* ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 7 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+7 0 obj
+<< /Length 2178 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (, 2, 3, 3, 3, 4]\)  #doctest: +ELLIPSIS) Tj T* (2.8333333333...) Tj T* (This should be interpreted in this way: you have two data points in the class) Tj T* (interval 1.5-2.5, three data points in the class interval 2.5-3.5, and one in) Tj T* (the class interval 3.5-4.5. The median of these data points is 2.8333...) Tj T* (Calculating variability or spread) Tj T* (---------------------------------) Tj T* (==================  =============================================) Tj T* (Function            Description) Tj T* (==================  =============================================) Tj T* (pvariance           Population variance of data.) Tj T* (variance            Sample variance of data.) Tj T* (pstdev              Population standard deviation of data.) Tj T* (stdev               Sample standard deviation of data.) Tj T* (==================  =============================================) Tj T* (Calculate the standard deviation of sample data:) Tj T* (>>> stdev\([2.5, 3.25, 5.5, 11.25, 11.75]\)  #doctest: +ELLIPSIS) Tj T* (4.38961843444...) Tj T* (If you have previously calculated the mean, you can pass it as the optional) Tj T* (second argument to the four "spread" functions to avoid recalculating it:) Tj T* (>>> data = [1, 2, 2, 4, 4, 4, 5, 6]) Tj T* (>>> mu = mean\(data\)) Tj T* (>>> pvariance\(data, mu\)) Tj T* (2.5) Tj T* (Statistics for relations between two inputs) Tj T* (-------------------------------------------) Tj T* (==================  ====================================================) Tj T* (Function            Description) Tj T* (==================  ====================================================) Tj T* (covariance          Sample covariance for two variables.) Tj T* (correlation         Pearson's correlation coefficient for two variables.) Tj T* (linear_regression   Intercept and slope for simple linear regression.) Tj T* (==================  ====================================================) Tj T* (Calculate covariance, Pearson's correlation, and simple linear regression) Tj T* (for two inputs:) Tj T* (>>> x = [1, 2, 3, 4, 5, 6, 7, 8, 9]) Tj T* (>>> y = [1, 2, 3, 1, 2, 3) Tj T* ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 9 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+9 0 obj
+<< /Length 2274 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (, 1, 2, 3]) Tj T* (>>> covariance\(x, y\)) Tj T* (0.75) Tj T* (>>> correlation\(x, y\)  #doctest: +ELLIPSIS) Tj T* (0.31622776601...) Tj T* (>>> linear_regression\(x, y\)  #doctest:) Tj T* (LinearRegression\(slope=0.1, intercept=1.5\)) Tj T* (Exceptions) Tj T* (----------) Tj T* (A single exception is defined: StatisticsError is a subclass of ValueError.) Tj T* (CLASSES) Tj T* (builtins.ValueError\(builtins.Exception\)) Tj T* (StatisticsError) Tj T* (builtins.object) Tj T* (NormalDist) Tj T* (class NormalDist\(builtins.object\)) Tj T* (|  NormalDist\(mu=0.0, sigma=1.0\)) Tj T* (|) Tj T* (|  Normal distribution of a random variable) Tj T* (|) Tj T* (|  Methods defined here:) Tj T* (|) Tj T* (|  __add__\(x1, x2\)) Tj T* (|      Add a constant or another NormalDist instance.) Tj T* (|) Tj T* (|      If *other* is a constant, translate mu by the constant,) Tj T* (|      leaving sigma unchanged.) Tj T* (|) Tj T* (|      If *other* is a NormalDist, add both the means and the variances.) Tj T* (|      Mathematically, this works only if the two distributions are) Tj T* (|      independent or if they are jointly normally distributed.) Tj T* (|) Tj T* (|  __eq__\(x1, x2\)) Tj T* (|      Two NormalDist objects are equal if their mu and sigma are both equal.) Tj T* (|) Tj T* (|  __getstate__\(self\)) Tj T* (|      Helper for pickle.) Tj T* (|) Tj T* (|  __hash__\(self\)) Tj T* (|      NormalDist objects hash equal if their mu and sigma are both equal.) Tj T* (|) Tj T* (|  __init__\(self, mu=0.0, sigma=1.0\)) Tj T* (|      NormalDist where mu is the mean and sigma is the standard deviation.) Tj T* (|) Tj T* (|  __mul__\(x1, x2\)) Tj T* (|      Multiply both mu and sigma by a constant.) Tj T* (|) Tj T* (|      Used for rescaling, perhaps to change measurement units.) Tj T* (|      Sigma is scaled with the absolute value of the constant.) Tj T* (|) Tj T* (|  __neg__\(x1\)) Tj T* (|      Negates mu while keeping sigma the same.) Tj T* (|) Tj T* (|  __pos__\(x1\)) Tj T* (|      Return a copy of the instance.) Tj T* (|) Tj T* (|  __radd__ = __add__\(x1, x2\)) Tj T* (|) Tj T* (|  __repr__\(self\)) Tj T* (|      Return repr\(self\).) Tj T* (|) Tj T* (|  __rmul__ = __mul__\(x1, x2\)) Tj T* (|) Tj T* (|  __rsub__\(x1) Tj T* ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000323 00000 n 
+0000002584 00000 n 
+0000002710 00000 n 
+0000004940 00000 n 
+0000005066 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+7392
+%%EOF

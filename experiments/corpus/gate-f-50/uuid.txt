@@ -1,0 +1,167 @@
+Python Library Documentation: module uuid
+
+NAME
+    uuid - UUID objects (universally unique identifiers) according to RFC 4122/9562.
+
+MODULE REFERENCE
+    https://docs.python.org/3.14/library/uuid.html
+
+    The following documentation is automatically generated from the Python
+    source files.  It may be incomplete, incorrect or include features that
+    are considered implementation detail and may vary between Python
+    implementations.  When in doubt, consult the module reference at the
+    location listed above.
+
+DESCRIPTION
+    This module provides immutable UUID objects (class UUID) and functions for
+    generating UUIDs corresponding to a specific UUID version as specified in
+    RFC 4122/9562, e.g., uuid1() for UUID version 1, uuid3() for UUID version 3,
+    and so on.
+
+    Note that UUID version 2 is deliberately omitted as it is outside the scope
+    of the RFC.
+
+    If all you want is a unique ID, you should probably call uuid1() or uuid4().
+    Note that uuid1() may compromise privacy since it creates a UUID containing
+    the computer's network address.  uuid4() creates a random UUID.
+
+    Typical usage:
+
+        >>> import uuid
+
+        # make a UUID based on the host ID and current time
+        >>> uuid.uuid1()    # doctest: +SKIP
+        UUID('a8098c1a-f86e-11da-bd1a-00112444be1e')
+
+        # make a UUID using an MD5 hash of a namespace UUID and a name
+        >>> uuid.uuid3(uuid.NAMESPACE_DNS, 'python.org')
+        UUID('6fa459ea-ee8a-3ca4-894e-db77e160355e')
+
+        # make a random UUID
+        >>> uuid.uuid4()    # doctest: +SKIP
+        UUID('16fd2706-8baf-433b-82eb-8c7fada847da')
+
+        # make a UUID using a SHA-1 hash of a namespace UUID and a name
+        >>> uuid.uuid5(uuid.NAMESPACE_DNS, 'python.org')
+        UUID('886313e1-3b8a-5372-9b90-0c9aee199e5d')
+
+        # make a UUID from a string of hex digits (braces and hyphens ignored)
+        >>> x = uuid.UUID('{00010203-0405-0607-0809-0a0b0c0d0e0f}')
+
+        # convert a UUID to a string of hex digits in standard form
+        >>> str(x)
+        '00010203-0405-0607-0809-0a0b0c0d0e0f'
+
+        # get the raw 16 bytes of the UUID
+        >>> x.bytes
+        b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f'
+
+        # make a UUID from a 16-byte string
+        >>> uuid.UUID(bytes=x.bytes)
+        UUID('00010203-0405-0607-0809-0a0b0c0d0e0f')
+
+        # get the Nil UUID
+        >>> uuid.NIL
+        UUID('00000000-0000-0000-0000-000000000000')
+
+        # get the Max UUID
+        >>> uuid.MAX
+        UUID('ffffffff-ffff-ffff-ffff-ffffffffffff')
+
+CLASSES
+    builtins.object
+        UUID
+    enum.Enum(builtins.object)
+        SafeUUID
+
+    class SafeUUID(enum.Enum)
+     |  SafeUUID(*values)
+     |
+     |  An enumeration.
+     |
+     |  Method resolution order:
+     |      SafeUUID
+     |      enum.Enum
+     |      builtins.object
+     |
+     |  Data and other attributes defined here:
+     |
+     |  safe = <SafeUUID.safe: 0>
+     |
+     |  unknown = <SafeUUID.unknown: None>
+     |
+     |  unsafe = <SafeUUID.unsafe: -1>
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors inherited from enum.Enum:
+     |
+     |  name
+     |      The name of the Enum member.
+     |
+     |  value
+     |      The value of the Enum member.
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods inherited from enum.EnumType:
+     |
+     |  __contains__(value)
+     |      Return True if `value` is in `cls`.
+     |
+     |      `value` is in `cls` if:
+     |      1) `value` is a member of `cls`, or
+     |      2) `value` is the value of one of the `cls`'s members.
+     |      3) `value` is a pseudo-member (flags)
+     |
+     |  __getitem__(name)
+     |      Return the member matching `name`.
+     |
+     |  __iter__()
+     |      Return members in definition order.
+     |
+     |  __len__()
+     |      Return the number of members (no aliases)
+     |
+     |  ----------------------------------------------------------------------
+     |  Readonly properties inherited from enum.EnumType:
+     |
+     |  __members__
+     |      Returns a mapping of member name->value.
+     |
+     |      This mapping lists all enum members, including aliases. Note that this
+     |      is a read-only view of the internal mapping.
+
+    class UUID(builtins.object)
+     |  UUID(
+     |      hex=None,
+     |      bytes=None,
+     |      bytes_le=None,
+     |      fields=None,
+     |      int=None,
+     |      version=None,
+     |      *,
+     |      is_safe=<SafeUUID.unknown: None>
+     |  )
+     |
+     |  Instances of the UUID class represent UUIDs as specified in RFC 4122.
+     |  UUID objects are immutable, hashable, and usable as dictionary keys.
+     |  Converting a UUID to a string with str() yields something in the form
+     |  '12345678-1234-1234-1234-123456789abc'.  The UUID constructor accepts
+     |  five possible forms: a similar string of hexadecimal digits, or a tuple
+     |  of six integer fields (with 32-bit, 16-bit, 16-bit, 8-bit, 8-bit, and
+     |  48-bit values respectively) as an argument named 'fields', or a string
+     |  of 16 bytes (with all the integer fields in big-endian order) as an
+     |  argument named 'bytes', or a string of 16 bytes (with the first three
+     |  fields in little-endian order) as an argument named 'bytes_le', or a
+     |  single 128-bit integer as an argument named 'int'.
+     |
+     |  UUIDs have these read-only attributes:
+     |
+     |      bytes       the UUID as a 16-byte string (containing the six
+     |                  integer fields in big-endian byte order)
+     |
+     |      bytes_le    the UUID as a 16-byte string (with time_low, time_mid,
+     |                  and time_hi_version in little-endian byte order)
+     |
+     |      fields      a tuple of the six integer fields of the UUID,
+     |                  which are also available as six individual attributes
+     |                  and two d

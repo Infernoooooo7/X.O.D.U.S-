@@ -29,6 +29,12 @@ $env:OLLAMA_KV_CACHE_TYPE = 'q8_0'
 $env:OLLAMA_KEEP_ALIVE = '10m'
 $env:OLLAMA_NO_CLOUD = '1'
 Remove-Item Env:OLLAMA_ORIGINS -ErrorAction SilentlyContinue
+# Ollama runs the model in llama.cpp's llama-server, which by default keeps earlier prompts in system memory (limit
+# 8192 MiB) and up to 32 context checkpoints. Measured in Gate F with qwen3.5:4b: the runner grew from 1.0 to 5.3 GiB over
+# 26 requests. With these two settings it stayed at 1.1 GiB, with no measurable slowdown over a 6-turn conversation
+# (experiments/gate-f/PROTOCOL.md, amendment 4). Ollama passes them on to llama-server. Values already set are kept.
+if (-not $env:LLAMA_ARG_CACHE_RAM) { $env:LLAMA_ARG_CACHE_RAM = '0' }
+if (-not $env:LLAMA_ARG_CTX_CHECKPOINTS) { $env:LLAMA_ARG_CTX_CHECKPOINTS = '2' }
 
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 $proc = Start-Process -FilePath $OllamaExe -ArgumentList 'serve' -WindowStyle Hidden -PassThru `

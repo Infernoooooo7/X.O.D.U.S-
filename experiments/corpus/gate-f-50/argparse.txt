@@ -1,0 +1,136 @@
+Python Library Documentation: module argparse
+
+NAME
+    argparse - Command-line parsing library
+
+MODULE REFERENCE
+    https://docs.python.org/3.14/library/argparse.html
+
+    The following documentation is automatically generated from the Python
+    source files.  It may be incomplete, incorrect or include features that
+    are considered implementation detail and may vary between Python
+    implementations.  When in doubt, consult the module reference at the
+    location listed above.
+
+DESCRIPTION
+    This module is an optparse-inspired command-line parsing library that:
+
+        - handles both optional and positional arguments
+        - produces highly informative usage messages
+        - supports parsers that dispatch to sub-parsers
+
+    The following is a simple usage example that sums integers from the
+    command-line and writes the result to a file::
+
+        parser = argparse.ArgumentParser(
+            description='sum the integers at the command line')
+        parser.add_argument(
+            'integers', metavar='int', nargs='+', type=int,
+            help='an integer to be summed')
+        parser.add_argument(
+            '--log',
+            help='the file where the sum should be written')
+        args = parser.parse_args()
+        with (open(args.log, 'w') if args.log is not None
+              else contextlib.nullcontext(sys.stdout)) as log:
+            log.write('%s' % sum(args.integers))
+
+    The module contains the following public classes:
+
+        - ArgumentParser -- The main entry point for command-line parsing. As the
+            example above shows, the add_argument() method is used to populate
+            the parser with actions for optional and positional arguments. Then
+            the parse_args() method is invoked to convert the args at the
+            command-line into an object with attributes.
+
+        - ArgumentError -- The exception raised by ArgumentParser objects when
+            there are errors with the parser's actions. Errors raised while
+            parsing the command-line are caught by ArgumentParser and emitted
+            as command-line messages.
+
+        - FileType -- A factory for defining types of files to be created. As the
+            example above shows, instances of FileType are typically passed as
+            the type= argument of add_argument() calls. Deprecated since
+            Python 3.14.
+
+        - Action -- The base class for parser actions. Typically actions are
+            selected by passing strings like 'store_true' or 'append_const' to
+            the action= argument of add_argument(). However, for greater
+            customization of ArgumentParser actions, subclasses of Action may
+            be defined and passed as the action= argument.
+
+        - HelpFormatter, RawDescriptionHelpFormatter, RawTextHelpFormatter,
+            ArgumentDefaultsHelpFormatter -- Formatter classes which
+            may be passed as the formatter_class= argument to the
+            ArgumentParser constructor. HelpFormatter is the default,
+            RawDescriptionHelpFormatter and RawTextHelpFormatter tell the parser
+            not to change the formatting for help text, and
+            ArgumentDefaultsHelpFormatter adds information about argument defaults
+            to the help.
+
+    All other classes in this module are considered implementation details.
+    (Also note that HelpFormatter and RawDescriptionHelpFormatter are only
+    considered public as object names -- the API of the formatter objects is
+    still considered an implementation detail.)
+
+CLASSES
+    _ActionsContainer(builtins.object)
+        ArgumentParser(_AttributeHolder, _ActionsContainer)
+    _AttributeHolder(builtins.object)
+        Action
+            BooleanOptionalAction
+        ArgumentParser(_AttributeHolder, _ActionsContainer)
+        Namespace
+    builtins.Exception(builtins.BaseException)
+        ArgumentError
+        ArgumentTypeError
+    builtins.object
+        FileType
+        HelpFormatter
+            ArgumentDefaultsHelpFormatter
+            MetavarTypeHelpFormatter
+            RawDescriptionHelpFormatter
+                RawTextHelpFormatter
+
+    class Action(_AttributeHolder)
+     |  Action(
+     |      option_strings,
+     |      dest,
+     |      nargs=None,
+     |      const=None,
+     |      default=None,
+     |      type=None,
+     |      choices=None,
+     |      required=False,
+     |      help=None,
+     |      metavar=None,
+     |      deprecated=False
+     |  )
+     |
+     |  Information about how to convert command line strings to Python objects.
+     |
+     |  Action objects are used by an ArgumentParser to represent the information
+     |  needed to parse a single argument from one or more strings from the
+     |  command line. The keyword arguments to the Action constructor are also
+     |  all attributes of Action instances.
+     |
+     |  Keyword Arguments:
+     |
+     |      - option_strings -- A list of command-line option strings which
+     |          should be associated with this action.
+     |
+     |      - dest -- The name of the attribute to hold the created object(s)
+     |
+     |      - nargs -- The number of command-line arguments that should be
+     |          consumed. By default, one argument will be consumed and a single
+     |          value will be produced.  Other values include:
+     |              - N (an integer) consumes N arguments (and produces a list)
+     |              - '?' consumes zero or one arguments
+     |              - '*' consumes zero or more arguments (and produces a list)
+     |              - '+' consumes one or more arguments (and produces a list)
+     |          Note that the difference between the default and nargs=1 is that
+     |          with the default, a single value will be produced, while with
+     |          nargs=1, a list containing a single value will be produced.
+     |
+     |      - const -- The value to be produced if the option is specified and the
+     |          option uses an action th

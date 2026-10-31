@@ -1,0 +1,54 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+5 0 obj
+<< /Length 2135 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (Python Library Documentation: module heapq) Tj T* (NAME) Tj T* (heapq - Heap queue algorithm \(a.k.a. priority queue\).) Tj T* (MODULE REFERENCE) Tj T* (https://docs.python.org/3.14/library/heapq.html) Tj T* (The following documentation is automatically generated from the Python) Tj T* (source files.  It may be incomplete, incorrect or include features that) Tj T* (are considered implementation detail and may vary between Python) Tj T* (implementations.  When in doubt, consult the module reference at the) Tj T* (location listed above.) Tj T* (DESCRIPTION) Tj T* (Heaps are arrays for which a[k] <= a[2*k+1] and a[k] <= a[2*k+2] for) Tj T* (all k, counting elements from 0.  For the sake of comparison,) Tj T* (non-existing elements are considered to be infinite.  The interesting) Tj T* (property of a heap is that a[0] is always its smallest element.) Tj T* (Usage:) Tj T* (heap = []            # creates an empty heap) Tj T* (heappush\(heap, item\) # pushes a new item on the heap) Tj T* (item = heappop\(heap\) # pops the smallest item from the heap) Tj T* (item = heap[0]       # smallest item on the heap without popping it) Tj T* (heapify\(x\)           # transforms list into a heap, in-place, in linear time) Tj T* (item = heappushpop\(heap, item\) # pushes a new item and then returns) Tj T* (# the smallest item; the heap size is unchanged) Tj T* (item = heapreplace\(heap, item\) # pops and returns smallest item, and adds) Tj T* (# new item; the heap size is unchanged) Tj T* (Our API differs from textbook heap algorithms as follows:) Tj T* (- We use 0-based indexing.  This makes the relationship between the) Tj T* (index for a node and the indexes for its children slightly less) Tj T* (obvious, but is more suitable since Python uses 0-based indexing.) Tj T* (- Our heappop\(\) method returns the smallest item, not the largest.) Tj T* (These two make it possible to view the heap as a regular Python list) Tj T* (without surprises: heap[0] is the smallest item, and heap.sort\(\)) Tj T* (maintains the heap invariant!) Tj T* (FUNCTIONS) Tj T* (heapify\(heap, /\)) Tj T* () Tj T* ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 7 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+7 0 obj
+<< /Length 2097 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (  Transform list into a heap, in-place, in O\(len\(heap\)\) time.) Tj T* (heappop\(heap, /\)) Tj T* (Pop the smallest item off the heap, maintaining the heap invariant.) Tj T* (heappush\(heap, item, /\)) Tj T* (Push item onto heap, maintaining the heap invariant.) Tj T* (heappushpop\(heap, item, /\)) Tj T* (Push item on the heap, then pop and return the smallest item from the heap.) Tj T* (The combined action runs more efficiently than heappush\(\) followed by) Tj T* (a separate call to heappop\(\).) Tj T* (heapreplace\(heap, item, /\)) Tj T* (Pop and return the current smallest value, and add the new item.) Tj T* (This is more efficient than heappop\(\) followed by heappush\(\), and can be) Tj T* (more appropriate when using a fixed-size heap.  Note that the value) Tj T* (returned may be larger than item!  That constrains reasonable uses of) Tj T* (this routine unless written as part of a conditional replacement:) Tj T* (if item > heap[0]:) Tj T* (item = heapreplace\(heap, item\)) Tj T* (merge\(*iterables, key=None, reverse=False\)) Tj T* (Merge multiple sorted inputs into a single sorted output.) Tj T* (Similar to sorted\(itertools.chain\(*iterables\)\) but returns a generator,) Tj T* (does not pull the data into memory all at once, and assumes that each of) Tj T* (the input streams is already sorted \(smallest to largest\).) Tj T* (>>> list\(merge\([1,3,5,7], [0,2,4,8], [5,10,15,20], [], [25]\)\)) Tj T* ([0, 1, 2, 3, 4, 5, 5, 7, 8, 10, 15, 20, 25]) Tj T* (If *key* is not None, applies a key function to each element to determine) Tj T* (its sort order.) Tj T* (>>> list\(merge\(['dog', 'horse'], ['cat', 'fish', 'kangaroo'], key=len\)\)) Tj T* (['dog', 'cat', 'fish', 'horse', 'kangaroo']) Tj T* (nlargest\(n, iterable, key=None\)) Tj T* (Find the n largest elements in a dataset.) Tj T* (Equivalent to:  sorted\(iterable, key=key, reverse=True\)[:n]) Tj T* (nsmallest\(n, iterable, key=None\)) Tj T* (Find the n smallest elements in a dataset.) Tj T* (Equivalent to:  sorted\(iterable, key=key\)[:n]) Tj T* (DATA) Tj T* (__about) Tj T* ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 9 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+9 0 obj
+<< /Length 251 >>
+stream
+BT /F1 11 Tf 14 TL 40 750 Td (__ = 'Heap queues\\n\\n[explanation by Fran ois Pinard]\\n\\nH... t...) Tj T* (__all__ = ['heappush', 'heappop', 'heapify', 'heapreplace', 'merge', '...) Tj T* (FILE) Tj T* (c:\\python314\\lib\\heapq.py) Tj T* () Tj T* ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000323 00000 n 
+0000002510 00000 n 
+0000002636 00000 n 
+0000004785 00000 n 
+0000004911 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+5213
+%%EOF

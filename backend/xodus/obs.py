@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from xodus.security.secrets import scrub
+
 logger = logging.getLogger("xodus")
 
 
@@ -20,7 +22,7 @@ class _JsonFormatter(logging.Formatter):
             "event": record.getMessage(),
             **getattr(record, "fields", {}),
         }
-        return json.dumps(payload, default=str)
+        return json.dumps(scrub(payload), default=str)  # known secret values never reach a log line
 
 
 def configure_logging(log_dir: Path, filename: str = "xodus.jsonl", to_stdout: bool = True) -> None:

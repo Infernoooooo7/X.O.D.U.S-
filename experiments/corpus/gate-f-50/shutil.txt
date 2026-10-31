@@ -1,0 +1,207 @@
+Python Library Documentation: module shutil
+
+NAME
+    shutil - Utility functions for copying and archiving files and directory trees.
+
+MODULE REFERENCE
+    https://docs.python.org/3.14/library/shutil.html
+
+    The following documentation is automatically generated from the Python
+    source files.  It may be incomplete, incorrect or include features that
+    are considered implementation detail and may vary between Python
+    implementations.  When in doubt, consult the module reference at the
+    location listed above.
+
+DESCRIPTION
+    XXX The functions here don't copy the resource fork or other metadata on Mac.
+
+CLASSES
+    builtins.OSError(builtins.Exception)
+        Error
+            SameFileError
+        SpecialFileError
+
+    class Error(builtins.OSError)
+     |  Method resolution order:
+     |      Error
+     |      builtins.OSError
+     |      builtins.Exception
+     |      builtins.BaseException
+     |      builtins.object
+     |
+     |  Data descriptors defined here:
+     |
+     |  __weakref__
+     |      list of weak references to the object
+     |
+     |  ----------------------------------------------------------------------
+     |  Methods inherited from builtins.OSError:
+     |
+     |  __init__(self, /, *args, **kwargs)
+     |      Initialize self.  See help(type(self)) for accurate signature.
+     |
+     |  __reduce__(self, /)
+     |      Helper for pickle.
+     |
+     |  __str__(self, /)
+     |      Return str(self).
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods inherited from builtins.OSError:
+     |
+     |  __new__(*args, **kwargs) class method of builtins.OSError
+     |      Create and return a new object.  See help(type) for accurate signature.
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors inherited from builtins.OSError:
+     |
+     |  characters_written
+     |
+     |  errno
+     |      POSIX exception code
+     |
+     |  filename
+     |      exception filename
+     |
+     |  filename2
+     |      second exception filename
+     |
+     |  strerror
+     |      exception strerror
+     |
+     |  winerror
+     |      Win32 exception code
+     |
+     |  ----------------------------------------------------------------------
+     |  Methods inherited from builtins.BaseException:
+     |
+     |  __repr__(self, /)
+     |      Return repr(self).
+     |
+     |  __setstate__(self, state, /)
+     |
+     |  add_note(self, note, /)
+     |      Add a note to the exception
+     |
+     |  with_traceback(self, tb, /)
+     |      Set self.__traceback__ to tb and return self.
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors inherited from builtins.BaseException:
+     |
+     |  __cause__
+     |
+     |  __context__
+     |
+     |  __dict__
+     |
+     |  __suppress_context__
+     |
+     |  __traceback__
+     |
+     |  args
+
+    class SameFileError(Error)
+     |  Raised when source and destination are the same file.
+     |
+     |  Method resolution order:
+     |      SameFileError
+     |      Error
+     |      builtins.OSError
+     |      builtins.Exception
+     |      builtins.BaseException
+     |      builtins.object
+     |
+     |  Data descriptors inherited from Error:
+     |
+     |  __weakref__
+     |      list of weak references to the object
+     |
+     |  ----------------------------------------------------------------------
+     |  Methods inherited from builtins.OSError:
+     |
+     |  __init__(self, /, *args, **kwargs)
+     |      Initialize self.  See help(type(self)) for accurate signature.
+     |
+     |  __reduce__(self, /)
+     |      Helper for pickle.
+     |
+     |  __str__(self, /)
+     |      Return str(self).
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods inherited from builtins.OSError:
+     |
+     |  __new__(*args, **kwargs) class method of builtins.OSError
+     |      Create and return a new object.  See help(type) for accurate signature.
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors inherited from builtins.OSError:
+     |
+     |  characters_written
+     |
+     |  errno
+     |      POSIX exception code
+     |
+     |  filename
+     |      exception filename
+     |
+     |  filename2
+     |      second exception filename
+     |
+     |  strerror
+     |      exception strerror
+     |
+     |  winerror
+     |      Win32 exception code
+     |
+     |  ----------------------------------------------------------------------
+     |  Methods inherited from builtins.BaseException:
+     |
+     |  __repr__(self, /)
+     |      Return repr(self).
+     |
+     |  __setstate__(self, state, /)
+     |
+     |  add_note(self, note, /)
+     |      Add a note to the exception
+     |
+     |  with_traceback(self, tb, /)
+     |      Set self.__traceback__ to tb and return self.
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors inherited from builtins.BaseException:
+     |
+     |  __cause__
+     |
+     |  __context__
+     |
+     |  __dict__
+     |
+     |  __suppress_context__
+     |
+     |  __traceback__
+     |
+     |  args
+
+    class SpecialFileError(builtins.OSError)
+     |  Raised when trying to do a kind of operation (e.g. copying) which is
+     |  not supported on a special file (e.g. a named pipe)
+     |
+     |  Method resolution order:
+     |      SpecialFileError
+     |      builtins.OSError
+     |      builtins.Exception
+     |      builtins.BaseException
+     |      builtins.object
+     |
+     |  Data descriptors defined here:
+     |
+     |  __weakref__
+     |      list of weak references to the object
+     |
+     |  ----------------------------------------------------------------------
+     |  Methods inherited from builtins.OSError:
+     |
+     |  __init__(self, /, *args, **kwargs)
+     |      Initialize self.  See help(

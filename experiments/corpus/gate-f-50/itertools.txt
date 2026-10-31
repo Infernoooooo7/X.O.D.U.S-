@@ -1,0 +1,179 @@
+Python Library Documentation: built-in module itertools
+
+NAME
+    itertools - Functional tools for creating and using iterators.
+
+DESCRIPTION
+    Infinite iterators:
+    count(start=0, step=1) --> start, start+step, start+2*step, ...
+    cycle(p) --> p0, p1, ... plast, p0, p1, ...
+    repeat(elem [,n]) --> elem, elem, elem, ... endlessly or up to n times
+
+    Iterators terminating on the shortest input sequence:
+    accumulate(p[, func]) --> p0, p0+p1, p0+p1+p2
+    batched(p, n) --> [p0, p1, ..., p_n-1], [p_n, p_n+1, ..., p_2n-1], ...
+    chain(p, q, ...) --> p0, p1, ... plast, q0, q1, ...
+    chain.from_iterable([p, q, ...]) --> p0, p1, ... plast, q0, q1, ...
+    compress(data, selectors) --> (d[0] if s[0]), (d[1] if s[1]), ...
+    dropwhile(predicate, seq) --> seq[n], seq[n+1], starting when predicate fails
+    groupby(iterable[, keyfunc]) --> sub-iterators grouped by value of keyfunc(v)
+    filterfalse(predicate, seq) --> elements of seq where predicate(elem) is False
+    islice(seq, [start,] stop [, step]) --> elements from
+           seq[start:stop:step]
+    pairwise(s) --> (s[0],s[1]), (s[1],s[2]), (s[2], s[3]), ...
+    starmap(fun, seq) --> fun(*seq[0]), fun(*seq[1]), ...
+    tee(it, n=2) --> (it1, it2 , ... itn) splits one iterator into n
+    takewhile(predicate, seq) --> seq[0], seq[1], until predicate fails
+    zip_longest(p, q, ...) --> (p[0], q[0]), (p[1], q[1]), ...
+
+    Combinatoric generators:
+    product(p, q, ... [repeat=1]) --> cartesian product
+    permutations(p[, r])
+    combinations(p, r)
+    combinations_with_replacement(p, r)
+
+CLASSES
+    builtins.object
+        accumulate
+        batched
+        chain
+        combinations
+        combinations_with_replacement
+        compress
+        count
+        cycle
+        dropwhile
+        filterfalse
+        groupby
+        islice
+        pairwise
+        permutations
+        product
+        repeat
+        starmap
+        takewhile
+        zip_longest
+
+    class accumulate(builtins.object)
+     |  accumulate(iterable, func=None, *, initial=None)
+     |
+     |  Return series of accumulated sums (or other binary function results).
+     |
+     |  Methods defined here:
+     |
+     |  __getattribute__(self, name, /)
+     |      Return getattr(self, name).
+     |
+     |  __iter__(self, /)
+     |      Implement iter(self).
+     |
+     |  __next__(self, /)
+     |      Implement next(self).
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods defined here:
+     |
+     |  __new__(*args, **kwargs)
+     |      Create and return a new object.  See help(type) for accurate signature.
+
+    class batched(builtins.object)
+     |  batched(iterable, n, *, strict=False)
+     |
+     |  Batch data into tuples of length n. The last batch may be shorter than n.
+     |
+     |  Loops over the input iterable and accumulates data into tuples
+     |  up to size n.  The input is consumed lazily, just enough to
+     |  fill a batch.  The result is yielded as soon as a batch is full
+     |  or when the input iterable is exhausted.
+     |
+     |      >>> for batch in batched('ABCDEFG', 3):
+     |      ...     print(batch)
+     |      ...
+     |      ('A', 'B', 'C')
+     |      ('D', 'E', 'F')
+     |      ('G',)
+     |
+     |  If "strict" is True, raises a ValueError if the final batch is shorter
+     |  than n.
+     |
+     |  Methods defined here:
+     |
+     |  __getattribute__(self, name, /)
+     |      Return getattr(self, name).
+     |
+     |  __iter__(self, /)
+     |      Implement iter(self).
+     |
+     |  __next__(self, /)
+     |      Implement next(self).
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods defined here:
+     |
+     |  __new__(*args, **kwargs)
+     |      Create and return a new object.  See help(type) for accurate signature.
+
+    class chain(builtins.object)
+     |  chain(*iterables)
+     |
+     |  Return a chain object whose .__next__() method returns elements from the
+     |  first iterable until it is exhausted, then elements from the next
+     |  iterable, until all of the iterables are exhausted.
+     |
+     |  Methods defined here:
+     |
+     |  __getattribute__(self, name, /)
+     |      Return getattr(self, name).
+     |
+     |  __iter__(self, /)
+     |      Implement iter(self).
+     |
+     |  __next__(self, /)
+     |      Implement next(self).
+     |
+     |  ----------------------------------------------------------------------
+     |  Class methods defined here:
+     |
+     |  __class_getitem__(object, /)
+     |      See PEP 585
+     |
+     |  from_iterable(iterable, /)
+     |      Alternative chain() constructor taking a single iterable argument that evaluates lazily.
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods defined here:
+     |
+     |  __new__(*args, **kwargs)
+     |      Create and return a new object.  See help(type) for accurate signature.
+
+    class combinations(builtins.object)
+     |  combinations(iterable, r)
+     |
+     |  Return successive r-length combinations of elements in the iterable.
+     |
+     |  combinations(range(4), 3) --> (0,1,2), (0,1,3), (0,2,3), (1,2,3)
+     |
+     |  Methods defined here:
+     |
+     |  __getattribute__(self, name, /)
+     |      Return getattr(self, name).
+     |
+     |  __iter__(self, /)
+     |      Implement iter(self).
+     |
+     |  __next__(self, /)
+     |      Implement next(self).
+     |
+     |  __sizeof__(self, /)
+     |      Returns size in memory, in bytes.
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods defined here:
+     |
+     |  __new__(*args, **kwargs)
+     |      Create and return a new object.  See help(type) for accurate signature.
+
+    class combinations_with_replacement(builtins.object)
+     |  combinations_with_replacement(iterable, r)
+     |
+     |  Return successive r-length combinations of elements in the iterable

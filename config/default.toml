@@ -41,8 +41,9 @@ max_history_tokens = 3000   # earlier turns of a conversation sent with each cha
 unload_wait_s = 15
 warmup = true
 
-# Resource thresholds (master prompt 3.7, TARGET values; GB = 10^9 bytes). Shown in the resource view.
-# Automatic throttling on these levels is Gate F. VRAM is device-wide and includes other apps' GPU use.
+# Resource thresholds (master prompt 3.7, TARGET values; GB = 10^9 bytes), enforced by the resource governor (Gate F).
+# USS: summed over every XODUS process (shared GPU memory is shown apart, not added). VRAM: XODUS's own processes'
+# dedicated GPU memory, not other apps' (user decision, 29 Oct 2026). See experiments/gate-f/PROTOCOL.md.
 [thresholds]
 warn_uss_gb = 3.6
 stop_uss_gb = 5.5
@@ -50,6 +51,9 @@ warn_vram_gb = 4.2
 stop_vram_gb = 4.8
 stop_available_gb = 1.5
 recover_after_s = 30
+enforce = true            # false: levels are shown only, nothing is held or refused
+check_interval_s = 2      # one measurement every 2 s
+idle_grace_s = 10         # at warn, plugin/MCP processes unused this long are stopped
 
 [envelope]   # provisional supported workload envelope (master prompt 3.5)
 max_running = 1

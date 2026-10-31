@@ -9,13 +9,13 @@ from types import SimpleNamespace
 
 import psutil
 import pytest
-from fastapi.testclient import TestClient
 
 from xodus.api.app import create_app
 from xodus.ingestion.pipeline import IngestError, _embed
 from xodus.providers.base import RemoteModelRefused
 from xodus.providers.ollama import SyncOllamaEmbedder
 from xodus.providers.ollama_env import check_ollama_environment
+from tests.helpers import api_client
 
 REMOTE = {"remote_model": "gpt-oss:120b", "remote_host": "https://ollama.com:443"}
 GOOD_ENV = {"OLLAMA_HOST": "127.0.0.1:11434", "OLLAMA_NO_CLOUD": "1", "OLLAMA_NUM_PARALLEL": "1"}
@@ -109,7 +109,7 @@ def test_an_unreadable_environment_is_unknown_but_the_address_is_still_checked()
 
 def test_health_reads_the_real_ollama_process_environment(make_settings, fake_ollama, monkeypatch):
     """The fake Ollama listens inside this pytest process, so the check reads this process's real environment."""
-    with TestClient(create_app(make_settings(base_url=fake_ollama.url)), base_url="http://127.0.0.1") as c:
+    with api_client(create_app(make_settings(base_url=fake_ollama.url))) as c:
         good = c.get("/api/health").json()["ollama_environment"]
         assert good["status"] == "ok" and good["pid"] == os.getpid()
         monkeypatch.delenv("OLLAMA_NO_CLOUD")
@@ -121,7 +121,7 @@ def test_health_reads_the_real_ollama_process_environment(make_settings, fake_ol
 def test_a_remote_embedding_model_is_reported_at_startup(make_settings, fake_ollama):
     fake_ollama.models = [{"name": "test-model:latest", "digest": "aaa", "size": 1},
                           {"name": "qwen3-embedding:0.6b", "digest": "bbb", "size": 384, **REMOTE}]
-    with TestClient(create_app(make_settings(base_url=fake_ollama.url)), base_url="http://127.0.0.1") as c:
+    with api_client(create_app(make_settings(base_url=fake_ollama.url))) as c:
         health = c.get("/api/health").json()
         assert health["knowledge"]["embedding"]["status"] == "remote_model"
         assert health["ollama"]["status"] == "remote_model"

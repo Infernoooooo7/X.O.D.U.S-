@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from xodus.security.secrets import known as known_secrets
+
 GENESIS = "0" * 64
 _SECRET_KEY = re.compile(r"(secret|token|password|passwd|api[_-]?key|authorization|cookie)", re.IGNORECASE)
 _RESERVED_FIELDS = {"seq", "ts", "event", "prev", "hash"}
@@ -76,7 +78,7 @@ class AuditLog:
         return int(last["seq"]), str(last["hash"])
 
     def append(self, event: str, **fields: Any) -> dict[str, Any]:
-        clean = {k: v for k, v in redact(fields, self._secrets).items() if k not in _RESERVED_FIELDS}
+        clean = {k: v for k, v in redact(fields, [*self._secrets, *known_secrets()]).items() if k not in _RESERVED_FIELDS}
         with self._lock:
             record: dict[str, Any] = {
                 "seq": self.seq + 1,

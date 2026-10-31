@@ -458,11 +458,21 @@ class KnowledgeStore:
     def request_cancel(self, job_id: int) -> dict[str, Any]:
         """Queued jobs are cancelled at once; running jobs stop at their next checkpoint."""
         with self.db.transaction() as conn:
-            row = conn.execute("SELECT status FROM ingestion_jobs WHERE id = ?", (job_id,)).fetchone()
+            row = conn.execute("SELECT status, collection_id, root_id, rel_path FROM ingestion_jobs WHERE id = ?",
+                               (job_id,)).fetchone()
             if row is None:
                 raise NotFound(f"No ingestion job with id {job_id}.")
             if row["status"] == "queued":
                 conn.execute("UPDATE ingestion_jobs SET status='cancelled', finished_at=? WHERE id=?", (time.time(), job_id))
+                # A queued job can be one that was interrupted (pause, resource hold, worker crash) and put back: its
+                # earlier attempt left a partial document. Cancelling removes it, as it does for a running job (found by
+                # the Gate F dry run: the document stayed 'ingesting' for ever). One active job per file, so it is ours.
+                partial = conn.execute("SELECT id FROM documents WHERE collection_id = ? AND source_root = ? AND source_path = ?"
+                                       " AND status = 'ingesting'", (row["collection_id"], row["root_id"], row["rel_path"])).fetchone()
+                if partial is not None:
+                    self._purge_chunks(conn, partial["id"])
+                    conn.execute("UPDATE documents SET status='cancelled', error=NULL, chunks_done=0, updated_at=? WHERE id=?",
+                                 (time.time(), partial["id"]))
             elif row["status"] == "running":
                 conn.execute("UPDATE ingestion_jobs SET cancel_requested=1 WHERE id=?", (job_id,))
             else:

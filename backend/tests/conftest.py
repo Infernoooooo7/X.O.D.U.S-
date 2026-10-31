@@ -45,6 +45,13 @@ def _ollama_server_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OLLAMA_ORIGINS", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _resource_governor_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """API tests must not depend on how much memory this machine has free right now, so the resource governor only
+    classifies here. test_governor.py switches it on (XODUS_THRESHOLDS__ENFORCE) and feeds it recorded snapshots."""
+    monkeypatch.setenv("XODUS_THRESHOLDS__ENFORCE", "false")
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))

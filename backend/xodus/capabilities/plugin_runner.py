@@ -150,49 +150,53 @@ class SubprocessCapability:
     async def invoke(self, args: dict[str, Any], ctx: InvocationContext) -> dict[str, Any]:
         async with self._lock:
             proc = await self._ensure_started()
-            self._next_id += 1
-            request_id = self._next_id
-            request = {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "method": "invoke",
-                "params": {"capability": self.manifest.id, "args": args,
-                           "roots": {k: str(v) for k, v in ctx.roots.items()}},
-            }
-            try:
-                await asyncio.to_thread(send_line, proc, request)
-                raw = await asyncio.wait_for(
-                    asyncio.to_thread(read_line, proc, self.manifest.max_output_bytes), timeout=self.manifest.timeout_s
-                )
-            except TimeoutError:
-                self._fail()
-                await self._kill("timeout")
-                raise CapabilityTimeout(f"{self.manifest.id} did not answer within {self.manifest.timeout_s:.0f} s; it was stopped.") from None
-            except asyncio.CancelledError:
-                ctx.cancel.set()
-                await asyncio.shield(self._kill("cancelled"))
-                raise
-            except LineTooLong:
-                self._fail()
-                await self._kill("output too large")
-                raise OutputTooLarge(
-                    f"{self.manifest.id} produced more than {self.manifest.max_output_bytes} bytes; the output was "
-                    "discarded and the plugin stopped."
-                ) from None
-            except (ProcessExited, OSError):
-                try:  # EOF arrives slightly before the process (and a venv launcher parent) finishes exiting
-                    code = await asyncio.to_thread(proc.popen.wait, 2)
-                except Exception:
-                    code = None
-                self._fail()
-                await self._kill("crashed")
-                raise PluginCrashed(f"{self.manifest.id} exited unexpectedly (exit code {code}).") from None
-            self.supervisor.touch(proc)
-            try:
-                return self._parse(raw, request_id)
-            except InvalidOutput:
-                await self._kill("protocol violation")  # out of sync: start clean on the next call
-                raise
+            with self.supervisor.in_use(proc):  # never stopped as idle by the resource governor mid-call
+                return await self._call(proc, args, ctx)
+
+    async def _call(self, proc: ManagedProcess, args: dict[str, Any], ctx: InvocationContext) -> dict[str, Any]:
+        self._next_id += 1
+        request_id = self._next_id
+        request = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "invoke",
+            "params": {"capability": self.manifest.id, "args": args,
+                       "roots": {k: str(v) for k, v in ctx.roots.items()}},
+        }
+        try:
+            await asyncio.to_thread(send_line, proc, request)
+            raw = await asyncio.wait_for(
+                asyncio.to_thread(read_line, proc, self.manifest.max_output_bytes), timeout=self.manifest.timeout_s
+            )
+        except TimeoutError:
+            self._fail()
+            await self._kill("timeout")
+            raise CapabilityTimeout(f"{self.manifest.id} did not answer within {self.manifest.timeout_s:.0f} s; it was stopped.") from None
+        except asyncio.CancelledError:
+            ctx.cancel.set()
+            await asyncio.shield(self._kill("cancelled"))
+            raise
+        except LineTooLong:
+            self._fail()
+            await self._kill("output too large")
+            raise OutputTooLarge(
+                f"{self.manifest.id} produced more than {self.manifest.max_output_bytes} bytes; the output was "
+                "discarded and the plugin stopped."
+            ) from None
+        except (ProcessExited, OSError):
+            try:  # EOF arrives slightly before the process (and a venv launcher parent) finishes exiting
+                code = await asyncio.to_thread(proc.popen.wait, 2)
+            except Exception:
+                code = None
+            self._fail()
+            await self._kill("crashed")
+            raise PluginCrashed(f"{self.manifest.id} exited unexpectedly (exit code {code}).") from None
+        self.supervisor.touch(proc)
+        try:
+            return self._parse(raw, request_id)
+        except InvalidOutput:
+            await self._kill("protocol violation")  # out of sync: start clean on the next call
+            raise
 
     def _parse(self, raw: bytes, request_id: int) -> dict[str, Any]:
         try:

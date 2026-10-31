@@ -8,7 +8,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
+import sqlite3
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -39,16 +41,19 @@ from xodus.orchestrator.task import TaskLog
 from xodus.orchestrator.tasks import TaskLimit, TaskManager
 from xodus.providers import build_provider
 from xodus.providers.base import ModelProvider, ProviderError, RequestBudget, estimate_tokens
-from xodus.providers.ollama import remote_model_error
+from xodus.providers.ollama import remote_model_error, unload_embedder_sync
 from xodus.providers.ollama_env import check_ollama_environment
 from xodus.providers.profiles import ModelManager, SwitchLog
 from xodus.resources.admission import AdmissionGate, QueueFull
+from xodus.resources.governor import ResourceGovernor, ResourcePressure
 from xodus.resources.sampler import Nvml, ResourceSampler, mib
 from xodus.retrieval.answer import AnswerService
 from xodus.retrieval.hybrid import Retriever
 from xodus.security.approvals import ApprovalError, ApprovalStore
 from xodus.security.audit import AuditLog, verify
 from xodus.security.policy import PermissionPolicy, Root
+from xodus.security.token import HEADER as TOKEN_HEADER
+from xodus.security.token import cookie_name, load_or_create, matches
 from xodus.storage.conversations import ConversationStore
 from xodus.storage.knowledge import KnowledgeStore
 from xodus.storage.memory import MemoryStore
@@ -242,9 +247,21 @@ def create_app(
         return None
 
     models = ModelManager(settings, provider, admission, sampler.nvml, SwitchLog(db), audit, generation_busy)
+
+    async def embedder_loaded() -> bool:
+        try:
+            return any((m.get("name") or m.get("model")) == settings.ollama.embed_model for m in await provider.running_models())
+        except ProviderError:
+            return False
+
+    governor = ResourceGovernor(settings.thresholds, sampler.snapshot, ingestion, supervisor, audit, embedder_loaded,
+                                unload_embedder=lambda: unload_embedder_sync(settings.ollama))
+    knowledge.governor = governor
     recorders: set[asyncio.Task[None]] = set()  # write each task's outcome into its conversation
     started_at = time.time()
     origins = {f"http://127.0.0.1:{settings.server.port}", f"http://localhost:{settings.server.port}"}
+    api_token = load_or_create(settings.data_dir)
+    token_cookie = cookie_name(settings.server.port)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -275,6 +292,9 @@ def create_app(
         )
         reaper = asyncio.create_task(supervisor.run_reaper(settings.supervisor.reaper_interval_s))
         monitor = asyncio.create_task(_ingestion_monitor())
+        background_tasks = [monitor, reaper]
+        if governor.enabled:
+            background_tasks.append(asyncio.create_task(governor.run()))
         app.state.deps = deps
         app.state.tasks = tasks
         app.state.supervisor = supervisor
@@ -282,7 +302,7 @@ def create_app(
         await tasks.shutdown()
         if recorders:  # cancelled tasks have ended; let their outcomes reach the database before it closes
             await asyncio.wait(set(recorders), timeout=5)
-        for background in (monitor, reaper):
+        for background in background_tasks:
             background.cancel()
             with suppress(asyncio.CancelledError):
                 await background
@@ -323,15 +343,46 @@ def create_app(
     app = FastAPI(title="XODUS", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
 
     @app.middleware("http")
-    async def same_origin_only(request: Request, call_next: Callable[..., Any]) -> Any:
-        """Refuse state-changing requests that a browser sends from another origin (CSRF, local web pages)."""
+    async def same_origin_and_token(request: Request, call_next: Callable[..., Any]) -> Any:
+        """Refuse state-changing requests that a browser sends from another origin (CSRF, local web pages), and any /api
+        request without the per-install token (header for scripts, cookie for the UI). UI pages set the cookie."""
+        path = request.url.path
+        is_api = path == "/api" or path.startswith("/api/")
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
             site = request.headers.get("sec-fetch-site")
             if (origin is not None and origin not in origins) or (site is not None and site not in ("same-origin", "none")):
-                log_event("cross_origin_refused", logging.WARNING, path=request.url.path, origin=origin, site=site)
+                log_event("cross_origin_refused", logging.WARNING, path=path, origin=origin, site=site)
                 return JSONResponse({"detail": "Cross-origin request refused."}, status_code=403)
-        return await call_next(request)
+        if is_api and not (matches(request.headers.get(TOKEN_HEADER), api_token)
+                           or matches(request.cookies.get(token_cookie), api_token)):
+            log_event("api_token_refused", logging.WARNING, path=path, method=request.method)
+            return JSONResponse({"ok": False, "error": {"code": "unauthorized", "message": (
+                f"Missing or wrong XODUS API token. Open the UI at http://127.0.0.1:{settings.server.port}/ or send the "
+                f"{TOKEN_HEADER} header with the token from {settings.data_dir / 'api_token'}.")}}, status_code=401)
+        response = await call_next(request)
+        if not is_api and request.method == "GET":
+            response.set_cookie(token_cookie, api_token, httponly=True, samesite="strict", path="/")
+        return response
+
+    @app.exception_handler(sqlite3.OperationalError)
+    async def database_error(_: Request, exc: sqlite3.OperationalError) -> JSONResponse:
+        """Found by failure injection F2: a database locked by another program answered a bare HTTP 500."""
+        busy = any(word in str(exc).lower() for word in ("locked", "busy"))
+        log_event("database_error", logging.ERROR, busy=busy, detail=str(exc))
+        if busy:
+            return JSONResponse({"ok": False, "error": {"code": "database_busy", "message": (
+                f"The database stayed locked for {settings.storage.busy_timeout_ms / 1000:.0f} s, probably by another program "
+                f"that has {settings.storage.filename} open. This request was not saved; try again in a moment.")}},
+                503, headers={"Retry-After": "5"})
+        return JSONResponse({"ok": False, "error": {"code": "database_error", "message": (
+            "The database reported an error and this request was not saved. See logs/xodus.jsonl.")}}, 500)
+
+    @app.exception_handler(ResourcePressure)
+    async def resource_pressure(_: Request, exc: ResourcePressure) -> JSONResponse:
+        log_event("refused_under_resource_pressure", logging.WARNING, message=exc.message)
+        return JSONResponse({"ok": False, "error": {"code": exc.code, "message": exc.message}}, 503,
+                            headers={"Retry-After": str(max(1, math.ceil(exc.retry_after_s)))})
 
     # Requests must name the loopback host we bind to; blocks DNS-rebinding style Host headers.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
@@ -350,6 +401,7 @@ def create_app(
             "envelope": {"max_running": admission.max_running, "max_queued": admission.max_queued,
                          "running": admission.running, "queued": admission.waiting},
             "measurement": {"nvml": sampler.nvml.error or "ok", "gpu_counters": sampler.gpu.error or "ok"},
+            "resources": governor.state(),
             "models": {"active": models.active_id, "switching": models.switching, "num_ctx": settings.ollama.num_ctx},
             "knowledge": {"embedding": embedding_status, "ingestion": ingestion.status(),
                           "store": (lambda s: {k: s[k] for k in ("schema_version", "collections", "documents", "chunks", "jobs",
@@ -506,6 +558,8 @@ def create_app(
         assert cap is not None and decision.args is not None
         if decision.verdict == "approve" or cap.manifest.side_effects != "none":
             return refuse("approval_required", "This capability changes things; run it as a task so it can be approved.", 409)
+        if cap.manifest.resource_class == "heavy":
+            governor.check("capability")
         ctx = InvocationContext(task_id=None, step_index=0, roots=roots_for(cap.manifest, policy))
         try:
             result, size = await invoke_checked(cap, decision.args, ctx, cap.manifest.timeout_s)
@@ -524,6 +578,7 @@ def create_app(
             raise HTTPException(422, f"Goal is longer than {settings.chat.max_message_chars} characters.")
         if req.conversation_id is not None:
             await asyncio.to_thread(conversations.get, req.conversation_id)  # 404 before anything starts
+        governor.check("tasks")
         try:
             task = tasks.create(req.goal, req.arm)
         except ValueError as exc:
@@ -611,7 +666,7 @@ def create_app(
 
     register_knowledge_routes(app, knowledge)
     register_workspace_routes(app, WorkspaceContext(settings, conversations, models, sampler, supervisor, registry,
-                                                    ingestion, audit))
+                                                    ingestion, audit, governor))
 
     if UI_DIR.is_dir():
         app.mount("/", UIStaticFiles(directory=UI_DIR, html=True), name="ui")
@@ -622,6 +677,8 @@ def create_app(
             return "<p>XODUS backend is running, but the UI is not built. See README.md (Build the UI).</p>"
 
     app.state.registry = registry
+    app.state.api_token = api_token
+    app.state.governor = governor
     app.state.audit = audit
     app.state.approvals = approvals
     app.state.knowledge = knowledge

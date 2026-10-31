@@ -496,6 +496,26 @@ def test_cancelling_a_queued_job_is_immediate_and_a_finished_job_conflicts(kb_st
     assert kb_store.claim_next_job(OWNER) is None
 
 
+def test_cancelling_an_interrupted_job_while_it_is_queued_removes_its_partial_document(kb_store):
+    """Gate F dry run: a job stopped by the resource governor (or a pause, or a worker crash) goes back to the queue with
+    a partial document; cancelling it then must not leave that document 'ingesting' for ever."""
+    from xodus.storage.knowledge import ChunkRecord
+
+    coll = kb_store.create_collection("main")
+    job = kb_store.enqueue_job(coll["id"], "docs", "a.txt")
+    kb_store.claim_next_job(OWNER)
+    doc = kb_store.start_document(collection_id=coll["id"], root="docs", path="a.txt", title="a.txt", fmt="text",
+                                  size_bytes=10, content_hash="h", chunker_version=CHUNKER_VERSION, encoding="utf-8")
+    kb_store.append_chunks(doc["id"], coll["id"], [ChunkRecord(0, "partial text", "t0", "H", None, None, 0, 12, 3)],
+                           [[0.1] * DIM])
+    assert kb_store.requeue_running() == [job["id"]]  # what a pause or a resource hold does
+    other = kb_store.start_document(collection_id=coll["id"], root="docs", path="b.txt", title="b.txt", fmt="text",
+                                    size_bytes=10, content_hash="h2", chunker_version=CHUNKER_VERSION, encoding="utf-8")
+    assert kb_store.request_cancel(job["id"])["status"] == "cancelled"
+    assert kb_store.get_document(doc["id"])["status"] == "cancelled" and kb_store.count_chunks() == 0
+    assert kb_store.get_document(other["id"])["status"] == "ingesting"  # another file's document is not touched
+
+
 def test_finish_job_requires_the_lease(kb_store):
     coll = kb_store.create_collection("main")
     kb_store.enqueue_job(coll["id"], "docs", "a.txt")

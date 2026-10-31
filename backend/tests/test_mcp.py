@@ -12,7 +12,7 @@ import psutil
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import ScriptedProvider, tool_call
+from tests.helpers import ScriptedProvider, tool_call, api_client
 from tests.test_knowledge_api import wait_for
 from xodus.api.app import create_app
 from xodus.capabilities.discovery import validate_mcp_manifest, validate_plugin_manifest
@@ -107,8 +107,7 @@ def client(make_settings, fake_ollama, plugins, monkeypatch):
     def make(data: dict | None = None, extra: str = "", provider=None) -> TestClient:
         if data is not None:
             install(plugins, data)
-        c = TestClient(create_app(make_settings(extra=extra, base_url=fake_ollama.url), provider=provider),
-                       base_url="http://127.0.0.1")
+        c = api_client(create_app(make_settings(extra=extra, base_url=fake_ollama.url), provider=provider))
         c.__enter__()
         opened.append(c)
         return c

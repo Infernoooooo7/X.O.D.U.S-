@@ -15,8 +15,8 @@ verified" below).
 
 | # | From → to | What travels | Channel and controls | Evidence |
 |---|---|---|---|---|
-| 1 | Browser tab → backend | Chat messages, questions, task goals, approval decisions, settings reads, deletions | HTTP on `127.0.0.1:8765`; `Host` allow-list; state changes refused from other origins | [V] `test_api.py`, `test_tasks_api.py`; a Gate E runtime snapshot saw 649 UI requests, all to `127.0.0.1` |
-| 2 | Backend → browser tab | The static UI (`frontend/out/`), JSON, streamed replies and task events (SSE) | Same connection | [V] browser tests |
+| 1 | Browser tab → backend | Chat messages, questions, task goals, approval decisions, settings reads, deletions; the API token cookie (Gate F) | HTTP on `127.0.0.1:8765`; `Host` allow-list; state changes refused from other origins; every `/api` request needs the per-install token | [V] `test_api.py`, `test_tasks_api.py`, `test_api_token.py`; a Gate E runtime snapshot saw 649 UI requests, all to `127.0.0.1` |
+| 2 | Backend → browser tab | The static UI (`frontend/out/`), JSON, streamed replies and task events (SSE); the API token as an HttpOnly, SameSite=Strict cookie on UI pages (never in page content) | Same connection | [V] browser tests; `test_api_token.py` |
 | 3 | Backend → Ollama (`127.0.0.1:11434`) | Chat prompts: system prompt, earlier turns within the history budget, the message. Ask prompts: retrieved passages wrapped as untrusted data. Task prompts: capability schemas, tool output (wrapped, capped). Query embeddings. Model management: `/api/version`, `tags`, `show`, `ps`, `generate` (load and unload) | Loopback only; remote and `-cloud` models refused before sending | [V] `ollama.py` is the only client; `test_provider.py`, `test_cloud_guard.py` |
 | 4 | Ingestion worker → Ollama | Text of document chunks, for embeddings (`/api/embed`) | Loopback only; a remote embedding model is refused before any text is sent | [V] `test_cloud_guard.py::test_the_ingestion_embedder_never_sends_text_to_a_remote_model` |
 | 5 | Backend → ingestion worker | Its settings as JSON in `XODUS_WORKER_SETTINGS`; it inherits the backend's whole environment (first-party code, unlike plugins). Jobs travel through the database | Child process in a Windows Job Object; reads only configured roots, checked again in the worker | [V] `ingestion/service.py`; `test_ingest_worker.py`, `test_ingest_pipeline.py` |
@@ -27,12 +27,15 @@ verified" below).
 
 ## 2. What is stored on disk
 
-Paths are relative to the repository unless `data_dir` or `log_dir` are configured elsewhere.
+Paths are relative to the repository unless `data_dir` or `log_dir` are configured elsewhere. Since Gate F, the values of
+approved plugin secrets are replaced by `[redacted]` in `logs/xodus.jsonl`, `logs/tasks.jsonl`, `data/audit.jsonl` and
+in tool output shown to a model [V: `test_canary.py`, which scans every file below and every prompt for a canary].
 
 | Location | Contents | Plain text | Removed by |
 |---|---|---|---|
 | `data/xodus.db` (+ `-wal`) | Ingested document text, chunks, vectors, conversations (questions and replies), memory items, ingestion jobs, model switch records, retrieval metadata (queries stored only as a hash and a length) | Yes, apart from vectors | Deleting a document removes text and vectors from the file (secure delete) [V: `test_deletion.py` raw-file scan]; deleting a conversation removes its messages [V: `test_conversations.py`] |
-| `data/audit.jsonl` | Hash-chained records: capability requests and their arguments (secret-looking values redacted), approvals, model loads and switches, process starts and stops, deletions | Yes | Never by XODUS (append-only by design) |
+| `data/audit.jsonl` | Hash-chained records: capability requests and their arguments (secret-looking values redacted), approvals, model loads and switches, process starts and stops, deletions, resource levels and governor actions (Gate F) | Yes | Never by XODUS (append-only by design) |
+| `data/api_token` | The per-install API token (Gate F), readable by the Windows user like the rest of `data/` | Yes | Delete it to rotate; a new one is written at the next start |
 | `logs/xodus.jsonl` | Request ids, model, timing, token counts, resource samples, error messages. Chat records hold the message **length**, not its text | Yes | By hand |
 | `logs/tasks.jsonl` | Every task event except streamed tokens: goal, plan, step arguments and targets, previews of tool output, the answer | Yes | By hand; **not** covered by the deletion endpoints |
 | `logs/ingestion-worker.jsonl` | Worker events: jobs, progress, errors | Yes | By hand |

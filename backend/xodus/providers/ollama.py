@@ -111,6 +111,21 @@ def check_embeddings(body: Any, expected: int, dimensions: int | None) -> list[l
     return vectors
 
 
+def unload_embedder_sync(ollama: OllamaSettings, timeout_s: float = 30.0) -> bool:
+    """Ask Ollama to drop the embedding model from memory now (keep_alive 0); the next embedding loads it again. Used by
+    the resource governor when it holds ingestion, so the memory ingestion brought in is actually given back instead of
+    staying resident for the keep-alive. Ollama loads a model to serve even this request, by default on the GPU, so a model
+    that is not resident is left alone. False if Ollama could not be reached or refused."""
+    try:
+        with httpx.Client(base_url=ollama.base_url, trust_env=False, timeout=timeout_s) as client:
+            running = client.get("/api/ps").json().get("models", [])
+            if not any((m.get("name") or m.get("model")) == ollama.embed_model for m in running):
+                return True
+            return client.post("/api/embed", json={"model": ollama.embed_model, "input": [], "keep_alive": 0}).status_code < 400
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return False
+
+
 class SyncOllamaEmbedder:
     """Blocking embedding client for the ingestion worker (its own process, no event loop)."""
 

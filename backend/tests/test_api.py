@@ -14,6 +14,7 @@ from tests.conftest import free_port
 from xodus.api.app import create_app
 from xodus.providers.ollama import OllamaProvider
 from xodus.resources.admission import AdmissionGate, QueueFull
+from tests.helpers import api_client
 
 
 def parse_sse(body: str) -> list[tuple[str, dict]]:
@@ -56,7 +57,7 @@ STREAM = [
 
 def client_for(settings, transport=None) -> TestClient:
     provider = OllamaProvider(settings.ollama, transport=transport)
-    return TestClient(create_app(settings, provider=provider), base_url="http://127.0.0.1")
+    return api_client(create_app(settings, provider=provider))
 
 
 def test_health_ok_with_mock(make_settings):

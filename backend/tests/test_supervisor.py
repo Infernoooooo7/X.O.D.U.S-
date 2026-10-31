@@ -17,6 +17,8 @@ import pytest
 
 from tests.conftest import FIXTURES, free_port
 from xodus.resources.sampler import listener_pid
+from xodus.security.token import HEADER as TOKEN_HEADER
+from xodus.security.token import read_token
 from xodus.supervisor.jobs import JobObject
 from xodus.supervisor.supervisor import Supervisor, SupervisorLimit
 
@@ -70,16 +72,17 @@ def test_real_backend_hard_kill_takes_its_plugin_processes_with_it(tmp_path):
         deadline = time.monotonic() + 40
         while time.monotonic() < deadline:
             try:
-                if httpx.get(f"{base}/api/health", trust_env=False, timeout=2).status_code == 200:
+                if httpx.get(f"{base}/api/health", trust_env=False, timeout=2).status_code in (200, 401):  # up; 401 = no token yet
                     break
             except httpx.HTTPError:
                 time.sleep(0.3)
-        caps = {c["id"]: c for c in httpx.get(f"{base}/api/capabilities", trust_env=False).json()}
+        auth = {TOKEN_HEADER: read_token(tmp_path / "data")}
+        caps = {c["id"]: c for c in httpx.get(f"{base}/api/capabilities", headers=auth, trust_env=False).json()}
         assert caps["test.spawner"]["available"], caps["test.spawner"]["unavailable_reasons"]
-        result = httpx.post(f"{base}/api/capabilities/test.spawner/invoke", json={"args": {}}, trust_env=False,
+        result = httpx.post(f"{base}/api/capabilities/test.spawner/invoke", json={"args": {}}, headers=auth, trust_env=False,
                             timeout=20).json()
         assert result["ok"], result
-        supervised = httpx.get(f"{base}/api/processes", trust_env=False, timeout=10).json()["supervised"]
+        supervised = httpx.get(f"{base}/api/processes", headers=auth, trust_env=False, timeout=10).json()["supervised"]
         assert len(supervised) == 1 and supervised[0]["tier"] == "optional" and supervised[0]["owner"] == "test.spawner"
         pids = set(supervised[0]["job_pids"]) | {result["result"]["grandchild"], result["result"]["pid"]}
         assert result["result"]["grandchild"] in supervised[0]["job_pids"]

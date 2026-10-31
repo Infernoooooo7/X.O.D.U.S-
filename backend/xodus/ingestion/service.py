@@ -59,6 +59,9 @@ class IngestionService:
         self._starts: deque[float] = deque()
         self.degraded: str | None = None
         self.worker_starts_total = 0
+        # Set by the resource governor (warn and stop levels). Kept in memory, apart from the user's pause, which is
+        # stored: a restart drops a hold, and releasing a hold never resumes what the user paused.
+        self.held: str | None = None
 
     # ------------------------------------------------------------------ requests
 
@@ -99,7 +102,7 @@ class IngestionService:
         if jobs:
             self.degraded, self._starts = None, deque()  # a new request retries a stopped worker
             self.ensure_worker("ingest request")
-        return Enqueued(jobs, rejected, self.store.ingestion_paused())
+        return Enqueued(jobs, rejected, self.store.ingestion_paused() or self.held is not None)
 
     def _precheck(self, path: Path) -> tuple[str, str] | None:
         ext = path.suffix.lower()
@@ -171,11 +174,35 @@ class IngestionService:
         log_event("ingestion_resumed", reason=reason, worker_started=started)
         return {"paused": False, "worker_started": started, "pending_jobs": self.store.pending_jobs()}
 
+    def hold(self, reason: str) -> dict[str, Any]:
+        """Resource governor: stop the worker at once; its job goes back to the queue and later resumes from its last
+        checkpoint (a committed batch), exactly as after a user pause. Queued jobs wait."""
+        with self._lock:
+            already = self.held is not None
+            self.held = reason
+            worker, self._worker = self._worker, None
+        if worker is not None:
+            self.supervisor.stop(worker, "held: " + reason)
+        requeued = self.store.requeue_running()
+        if not already:
+            self.audit.append("ingestion_held", reason=reason, requeued_jobs=requeued)
+            log_event("ingestion_held", logging.WARNING, reason=reason, requeued_jobs=requeued)
+        return {"held": reason, "worker_stopped": worker is not None, "requeued_jobs": requeued}
+
+    def release(self, reason: str) -> dict[str, Any]:
+        with self._lock:
+            was, self.held = self.held, None
+        started = self.ensure_worker("released after resource pressure") if was and self.store.pending_jobs() else False
+        if was:
+            self.audit.append("ingestion_released", reason=reason, worker_started=started)
+            log_event("ingestion_released", reason=reason, worker_started=started)
+        return {"released": was is not None, "worker_started": started}
+
     def ensure_worker(self, reason: str) -> bool:
-        """Start the worker if none is running (and ingestion is not paused). Returns True if one was started."""
+        """Start the worker if none is running (and ingestion is neither paused nor held). True if one was started."""
         cfg = self.settings.ingestion
-        with self._lock:  # pause() sets the flag under this lock, so a worker cannot start after a pause
-            if self.store.ingestion_paused():
+        with self._lock:  # pause() and hold() set their flags under this lock, so a worker cannot start after them
+            if self.store.ingestion_paused() or self.held is not None:
                 return False
             if self._worker is not None:
                 if self.supervisor.is_alive(self._worker):
@@ -205,7 +232,7 @@ class IngestionService:
 
     def tick(self) -> None:
         """One monitoring pass: keep a worker running while jobs are pending, kill one whose heartbeat stalled."""
-        if self.store.pending_jobs() == 0 or self.store.ingestion_paused():
+        if self.store.pending_jobs() == 0 or self.store.ingestion_paused() or self.held is not None:
             return
         if self.worker_alive():
             assert self._worker is not None
@@ -229,6 +256,7 @@ class IngestionService:
                        "idle_timeout_s": self.settings.ingestion.worker_idle_timeout_s},
             "pending_jobs": self.store.pending_jobs(),
             "paused": self.store.ingestion_paused(),
+            "held": self.held,  # the resource governor's reason, or None
             "embedding": {"model": self.settings.ollama.embed_model, "dimensions": self.settings.embedding.dimensions,
                           "num_gpu": self.settings.embedding.num_gpu, "batch_size": self.settings.embedding.batch_size},
         }

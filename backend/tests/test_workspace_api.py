@@ -18,6 +18,7 @@ from xodus.api.app import create_app
 from xodus.config.settings import ThresholdSettings
 from xodus.resources.thresholds import evaluate
 from xodus.security.audit import AuditLog, read_recent
+from tests.helpers import api_client
 
 GB = 10**9
 
@@ -25,9 +26,14 @@ GB = 10**9
 # ---------------------------------------------------------------------------------------------- thresholds
 
 
-def snap(uss_gb: float, vram_gb: float | None, available_gb: float, complete: bool = True) -> dict:
-    return {"totals": {"uss": int(uss_gb * GB)}, "uss_complete": complete,
-            "device_vram": None if vram_gb is None else {"used": int(vram_gb * GB), "total": 6 * GB},
+def snap(uss_gb: float, vram_gb: float | None, available_gb: float, complete: bool = True, shared_gb: float = 0.0,
+         device_gb: float | None = None) -> dict:
+    """vram_gb is XODUS's own dedicated GPU memory (per-process counters); None means the counters could not be read."""
+    return {"totals": {"uss": int(uss_gb * GB), "gpu_shared_xodus": int(shared_gb * GB),
+                       "gpu_dedicated_xodus": None if vram_gb is None else int(vram_gb * GB)},
+            "uss_complete": complete,
+            "errors": {"gpu_counters": "counters unreadable" if vram_gb is None else None},
+            "device_vram": None if device_gb is None else {"used": int(device_gb * GB), "total": 6 * GB},
             "system_memory": {"available": int(available_gb * GB)}}
 
 
@@ -43,7 +49,7 @@ def snap(uss_gb: float, vram_gb: float | None, available_gb: float, complete: bo
 def test_threshold_levels(uss, vram, avail, level, metric_levels):
     result = evaluate(snap(uss, vram, avail), ThresholdSettings())
     assert result["level"] == level and [c["level"] for c in result["checks"]] == metric_levels
-    assert result["enforced"] is False and "Gate F" in result["enforcement_note"]
+    assert result["enforced"] is False and "shown only" in result["enforcement_note"]  # no governor attached
 
 
 def test_incomplete_uss_is_unknown_not_low():
@@ -66,7 +72,7 @@ def client(make_settings, fake_ollama, monkeypatch):
     opened = []
 
     def make(extra: str = "", settings=None) -> TestClient:
-        c = TestClient(create_app(settings or make_settings(extra=extra, base_url=fake_ollama.url)), base_url="http://127.0.0.1")
+        c = api_client(create_app(settings or make_settings(extra=extra, base_url=fake_ollama.url)))
         c.__enter__()
         opened.append(c)
         return c
@@ -121,7 +127,7 @@ def test_pausing_ingestion_stops_the_worker_and_resuming_continues_from_the_chec
     fake_ollama.embed_delay_s = 0.4
     (docs_root / "big.md").write_text(topic_markdown("astronomy", 8, 4), encoding="utf-8")
     settings = kb_settings(base_url=fake_ollama.url)
-    with TestClient(create_app(settings), base_url="http://127.0.0.1") as c:
+    with api_client(create_app(settings)) as c:
         create_collection(c)
         job = ingest(c, path="big.md").json()["jobs"][0]
         wait_for(lambda: len(fake_ollama.embed_calls) >= 2, what="two batches")
@@ -140,7 +146,7 @@ def test_pausing_ingestion_stops_the_worker_and_resuming_continues_from_the_chec
         assert queued.status_code == 202 and queued.json()["paused"] is True
         time.sleep(0.6)
         assert c.get("/api/knowledge/stats").json()["ingestion"]["worker"]["running"] is False
-    with TestClient(create_app(settings), base_url="http://127.0.0.1") as c:  # still paused after a restart
+    with api_client(create_app(settings)) as c:  # still paused after a restart
         time.sleep(0.6)
         assert c.get("/api/knowledge/stats").json()["ingestion"]["paused"] is True
         assert c.get("/api/knowledge/stats").json()["ingestion"]["worker"]["running"] is False
@@ -247,7 +253,7 @@ def test_segment_prefetch_files_are_found_and_stay_inside_the_ui_folder(make_set
     (ui / "history" / "__next.history" / "__PAGE__.txt").write_text("segment payload", encoding="utf-8")
     (tmp_path / "secret.txt").write_text("outside the UI folder", encoding="utf-8")
     monkeypatch.setattr(app_module, "UI_DIR", ui)
-    with TestClient(create_app(make_settings(base_url=fake_ollama.url)), base_url="http://127.0.0.1") as c:
+    with api_client(create_app(make_settings(base_url=fake_ollama.url))) as c:
         assert c.get("/history/__next.history.__PAGE__.txt").text == "segment payload"
         assert c.get("/history/").text == "<p>history</p>"
         for probe in ("/history/__next.missing.__PAGE__.txt", "/__next...secret.txt", "/history/__next....secret.txt",

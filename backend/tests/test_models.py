@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from xodus.api.app import create_app
 from xodus.config.settings import ConfigError
+from tests.helpers import api_client
 
 PROFILES = """
 [models]
@@ -75,7 +76,7 @@ def client(make_settings, fake):
     clients = []
 
     def make(extra: str = PROFILES) -> TestClient:
-        c = TestClient(create_app(make_settings(extra=extra, base_url=fake.url)), base_url="http://127.0.0.1")
+        c = api_client(create_app(make_settings(extra=extra, base_url=fake.url)))
         c.__enter__()
         c.app.state.models.nvml = FakeNvml(fake)
         clients.append(c)
@@ -226,7 +227,7 @@ def test_a_model_that_will_not_unload_stops_the_switch(client, fake):
 
 def test_startup_unloads_a_generation_model_left_by_an_earlier_run(make_settings, fake):
     fake.loaded = {"other-model:latest": 1000 * MB, "fake-embed:latest": 500 * MB, "some-unrelated:latest": 1}
-    with TestClient(create_app(make_settings(extra=PROFILES, base_url=fake.url)), base_url="http://127.0.0.1") as c:
+    with api_client(create_app(make_settings(extra=PROFILES, base_url=fake.url))) as c:
         assert set(fake.loaded) == {"fake-embed:latest", "some-unrelated:latest"}  # only XODUS's own generators
         assert any(a["event"] == "model_unloaded_at_startup" and a["models"] == ["other-model:latest"] for a in audit(c))
 
@@ -234,8 +235,7 @@ def test_startup_unloads_a_generation_model_left_by_an_earlier_run(make_settings
 def test_ollama_down_is_reported_not_crashed(make_settings):
     from tests.conftest import free_port
 
-    with TestClient(create_app(make_settings(extra=PROFILES, base_url=f"http://127.0.0.1:{free_port()}")),
-                    base_url="http://127.0.0.1") as c:
+    with api_client(create_app(make_settings(extra=PROFILES, base_url=f"http://127.0.0.1:{free_port()}"))) as c:
         body = c.get("/api/models").json()
         assert body["ollama_reachable"] is False and all(p["installed"] is None for p in body["profiles"])
         resp = switch(c, "other")

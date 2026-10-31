@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from xodus.security.secrets import scrub
+
 TERMINAL = frozenset({"completed", "failed_safe", "blocked", "budget_exceeded", "step_limit", "cancelled", "error"})
 
 
@@ -37,7 +39,7 @@ class TaskLog:
         self._lock = threading.Lock()
 
     def write(self, task_id: str, event: dict[str, Any]) -> None:
-        line = json.dumps({"task_id": task_id, **event}, ensure_ascii=False, default=str)
+        line = json.dumps(scrub({"task_id": task_id, **event}), ensure_ascii=False, default=str)
         with self._lock, open(self.path, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
 

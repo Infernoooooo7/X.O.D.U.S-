@@ -22,6 +22,7 @@ from xodus.capabilities.registry import CapabilityRegistry
 from xodus.config.settings import REPO_ROOT, Settings, default_config_files
 from xodus.ingestion.service import IngestionService
 from xodus.providers.profiles import ModelManager, SwitchError
+from xodus.resources.governor import ResourceGovernor
 from xodus.resources.sampler import ResourceSampler, mib
 from xodus.resources.thresholds import evaluate
 from xodus.security.audit import AuditLog, read_recent
@@ -52,6 +53,7 @@ class WorkspaceContext:
     registry: CapabilityRegistry
     ingestion: IngestionService
     audit: AuditLog
+    governor: ResourceGovernor | None = None
 
 
 class _Strict(BaseModel):
@@ -115,9 +117,11 @@ def resource_view(snap: dict[str, Any], w: WorkspaceContext) -> dict[str, Any]:
         "device_vram": {k: mib(v) for k, v in vram.items()} if vram else None,
         "gpu_ollama": {"dedicated_mib": mib(snap["totals"]["gpu_dedicated_ollama"]),
                        "shared_mib": mib(snap["totals"]["gpu_shared_ollama"])},
+        "gpu_xodus": {"dedicated_mib": mib(snap["totals"].get("gpu_dedicated_xodus")),
+                      "shared_mib": mib(snap["totals"].get("gpu_shared_xodus"))},
         "measurement": {"nvml": snap["errors"]["nvml"] or "ok", "gpu_counters": snap["errors"]["gpu_counters"] or "ok",
                         "sample_ms": snap["sample_ms"]},
-        "thresholds": evaluate(snap, w.settings.thresholds),
+        "thresholds": evaluate(snap, w.settings.thresholds, w.governor.state() if w.governor else None),
         "ingestion": w.ingestion.status(),
         "supervised": w.supervisor.snapshot(),
         "limits": {"max_optional_processes": w.supervisor.max_optional,
@@ -169,6 +173,8 @@ def register_workspace_routes(app: FastAPI, w: WorkspaceContext) -> None:
 
     @app.post("/api/models/switch")
     async def switch_model(req: SwitchRequest) -> dict[str, Any]:
+        if w.governor is not None:
+            w.governor.check("model_switch")
         record = await w.models.switch(req.profile)
         return {"ok": True, "switch": record, "active": w.models.active_id}
 
@@ -176,7 +182,9 @@ def register_workspace_routes(app: FastAPI, w: WorkspaceContext) -> None:
 
     @app.get("/api/resources")
     async def resources() -> dict[str, Any]:
-        snap = await asyncio.to_thread(w.sampler.snapshot)
+        # The governor samples every check_interval_s anyway; reuse a fresh snapshot instead of taking a second one.
+        recent = w.governor.recent_snapshot(w.settings.thresholds.check_interval_s) if w.governor else None
+        snap = recent or await asyncio.to_thread(w.sampler.snapshot)
         return await asyncio.to_thread(resource_view, snap, w)
 
     @app.post("/api/processes/{pid}/stop")

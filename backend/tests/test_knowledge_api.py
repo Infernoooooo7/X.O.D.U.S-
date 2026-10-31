@@ -18,6 +18,7 @@ from xodus.api.app import create_app
 from xodus.retrieval.citations import INSUFFICIENT_PHRASE
 from xodus.security.audit import verify
 from xodus.storage.migrate import load_migrations
+from tests.helpers import api_client
 
 
 def wait_for(condition, timeout: float = 30.0, interval: float = 0.1, what: str = "condition"):
@@ -52,7 +53,7 @@ def make_client(env, kb_settings, fake_ollama):
 
     def _make(extra: str = "") -> TestClient:
         settings = kb_settings(extra=extra, base_url=fake_ollama.url)
-        client = TestClient(create_app(settings), base_url="http://127.0.0.1")
+        client = api_client(create_app(settings))
         client.__enter__()
         opened.append(client)
         return client
@@ -314,7 +315,7 @@ def test_a_killed_worker_is_restarted_and_the_job_resumes(make_client, docs_root
 def test_backend_shutdown_stops_the_worker(env, kb_settings, docs_root, fake_ollama):
     fake_ollama.embed_delay_s = 1.0
     (docs_root / "big.md").write_text(topic_markdown("astronomy", 8, 4), encoding="utf-8")
-    with TestClient(create_app(kb_settings(base_url=fake_ollama.url)), base_url="http://127.0.0.1") as client:
+    with api_client(create_app(kb_settings(base_url=fake_ollama.url))) as client:
         create_collection(client)
         ingest(client, path="big.md")
         worker = wait_for(lambda: next((s for s in client.get("/api/processes").json()["supervised"] if s["role"] == "ingestion"), None),

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import ScriptedProvider
+from tests.helpers import ScriptedProvider, api_client
 from tests.kb_helpers import topic_markdown
 from tests.test_api import parse_sse
 from tests.test_knowledge_api import create_collection, fake_chat, ingest, wait_jobs  # noqa: F401
@@ -121,8 +121,7 @@ def client(make_settings, fake_ollama):
     opened = []
 
     def make(extra: str = "", provider=None) -> TestClient:
-        c = TestClient(create_app(make_settings(extra=extra, base_url=fake_ollama.url), provider=provider),
-                       base_url="http://127.0.0.1")
+        c = api_client(create_app(make_settings(extra=extra, base_url=fake_ollama.url), provider=provider))
         c.__enter__()
         opened.append(c)
         return c
@@ -262,7 +261,7 @@ def test_ask_saves_the_answer_with_its_validated_citations(kb_settings, fake_oll
     monkeypatch.setenv("XODUS_INGESTION__MONITOR_INTERVAL_S", "0.2")
     fake_ollama.chat_answer = fake_chat
     (docs_root / "astro.md").write_text(topic_markdown("astronomy", 3, 3), encoding="utf-8")
-    with TestClient(create_app(kb_settings(base_url=fake_ollama.url)), base_url="http://127.0.0.1") as c:
+    with api_client(create_app(kb_settings(base_url=fake_ollama.url))) as c:
         create_collection(c)
         wait_jobs(c, [j["id"] for j in ingest(c, path="astro.md").json()["jobs"]])
         conv = new_conversation(c, "Space")

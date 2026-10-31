@@ -22,6 +22,7 @@ from xodus.config.settings import Settings
 from xodus.ingestion.service import IngestionService, IngestRequestError
 from xodus.memory.manager import MemoryManager
 from xodus.obs import log_event
+from xodus.resources.governor import ResourceGovernor
 from xodus.retrieval.answer import AnswerService
 from xodus.retrieval.hybrid import QueryError, Retriever
 from xodus.security.audit import AuditLog
@@ -45,6 +46,7 @@ class KnowledgeContext:
     answers: AnswerService
     audit: AuditLog
     conversations: ConversationStore | None = None
+    governor: ResourceGovernor | None = None  # refuses heavy work at the resource stop level
 
 
 class _Strict(BaseModel):
@@ -143,9 +145,12 @@ def register_knowledge_routes(app: FastAPI, k: KnowledgeContext) -> None:
 
     @app.post("/api/knowledge/ingest", status_code=202)
     async def ingest(req: IngestRequest) -> JSONResponse:
+        if k.governor is not None:
+            k.governor.check("ingest")  # stop level: refused; warn level: queued but held
         queued = await asyncio.to_thread(k.ingestion.enqueue, req.collection, req.root, req.path, req.recursive)
         status = 202 if queued.jobs else 422
-        return JSONResponse({"jobs": queued.jobs, "rejected": queued.rejected, "paused": queued.paused}, status)
+        return JSONResponse({"jobs": queued.jobs, "rejected": queued.rejected, "paused": queued.paused,
+                             "held": k.ingestion.held}, status)
 
     @app.post("/api/ingestion/pause")
     async def pause_ingestion() -> dict[str, Any]:
@@ -220,12 +225,16 @@ def register_knowledge_routes(app: FastAPI, k: KnowledgeContext) -> None:
 
     @app.post("/api/knowledge/search")
     async def search(req: SearchRequest) -> dict[str, Any]:
+        if k.governor is not None:
+            await k.governor.check_search()
         result = await k.retriever.search(req.query, await collection_ids(req.collections), k=req.k, origin="user")
         return {"mode": result.mode, "sufficient": result.sufficient, "degraded": result.degraded, "reasons": result.reasons,
                 "stats": result.stats, "results": [{**e.summary(), "text": e.text} for e in result.evidence]}
 
     @app.post("/api/knowledge/ask")
     async def ask(req: AskRequest) -> StreamingResponse:
+        if k.governor is not None:
+            await k.governor.check_search()
         ids = await collection_ids(req.collections)
         convs, conv_id = k.conversations, req.conversation_id
         if conv_id is not None and convs is not None:

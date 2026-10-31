@@ -1,0 +1,194 @@
+Python Library Documentation: module functools
+
+NAME
+    functools - functools.py - Tools for working with functions and callable objects
+
+MODULE REFERENCE
+    https://docs.python.org/3.14/library/functools.html
+
+    The following documentation is automatically generated from the Python
+    source files.  It may be incomplete, incorrect or include features that
+    are considered implementation detail and may vary between Python
+    implementations.  When in doubt, consult the module reference at the
+    location listed above.
+
+CLASSES
+    builtins.object
+        cached_property
+        partial
+        partialmethod
+        singledispatchmethod
+
+    class cached_property(builtins.object)
+     |  cached_property(func)
+     |
+     |  Methods defined here:
+     |
+     |  __get__(self, instance, owner=None)
+     |
+     |  __init__(self, func)
+     |      Initialize self.  See help(type(self)) for accurate signature.
+     |
+     |  __set_name__(self, owner, name)
+     |
+     |  ----------------------------------------------------------------------
+     |  Class methods defined here:
+     |
+     |  __class_getitem__ = GenericAlias(args, /)
+     |      Represent a PEP 585 generic type
+     |
+     |      E.g. for t = list[int], t.__origin__ is list and t.__args__ is (int,).
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors defined here:
+     |
+     |  __dict__
+     |      dictionary for instance variables
+     |
+     |  __weakref__
+     |      list of weak references to the object
+
+    class partial(builtins.object)
+     |  partial(func, /, *args, **keywords)
+     |
+     |  Create a new function with partial application of the given arguments
+     |  and keywords.
+     |
+     |  Methods defined here:
+     |
+     |  __call__(self, /, *args, **kwargs)
+     |      Call self as a function.
+     |
+     |  __delattr__(self, name, /)
+     |      Implement delattr(self, name).
+     |
+     |  __get__(self, instance, owner=None, /)
+     |      Return an attribute of instance, which is of type owner.
+     |
+     |  __getattribute__(self, name, /)
+     |      Return getattr(self, name).
+     |
+     |  __reduce__(self, /)
+     |      Helper for pickle.
+     |
+     |  __repr__(self, /)
+     |      Return repr(self).
+     |
+     |  __setattr__(self, name, value, /)
+     |      Implement setattr(self, name, value).
+     |
+     |  __setstate__(self, object, /)
+     |
+     |  ----------------------------------------------------------------------
+     |  Class methods defined here:
+     |
+     |  __class_getitem__(object, /)
+     |      See PEP 585
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods defined here:
+     |
+     |  __new__(*args, **kwargs)
+     |      Create and return a new object.  See help(type) for accurate signature.
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors defined here:
+     |
+     |  __dict__
+     |
+     |  __vectorcalloffset__
+     |
+     |  args
+     |      tuple of arguments to future partial calls
+     |
+     |  func
+     |      function object to use in future partial calls
+     |
+     |  keywords
+     |      dictionary of keyword arguments to future partial calls
+
+    class partialmethod(builtins.object)
+     |  partialmethod(func, /, *args, **keywords)
+     |
+     |  Method descriptor with partial application of the given arguments
+     |  and keywords.
+     |
+     |  Supports wrapping existing descriptors and handles non-descriptor
+     |  callables as instance methods.
+     |
+     |  Methods defined here:
+     |
+     |  __get__(self, obj, cls=None)
+     |
+     |  __repr__ = _partial_repr(self)
+     |
+     |  ----------------------------------------------------------------------
+     |  Class methods defined here:
+     |
+     |  __class_getitem__ = GenericAlias(args, /)
+     |      Represent a PEP 585 generic type
+     |
+     |      E.g. for t = list[int], t.__origin__ is list and t.__args__ is (int,).
+     |
+     |  ----------------------------------------------------------------------
+     |  Static methods defined here:
+     |
+     |  __new__ = _partial_new(cls, func, /, *args, **keywords)
+     |
+     |  ----------------------------------------------------------------------
+     |  Readonly properties defined here:
+     |
+     |  __isabstractmethod__
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors defined here:
+     |
+     |  __dict__
+     |      dictionary for instance variables
+     |
+     |  __weakref__
+     |      list of weak references to the object
+
+    class singledispatchmethod(builtins.object)
+     |  singledispatchmethod(func)
+     |
+     |  Single-dispatch generic method descriptor.
+     |
+     |  Supports wrapping existing descriptors and handles non-descriptor
+     |  callables as instance methods.
+     |
+     |  Methods defined here:
+     |
+     |  __get__(self, obj, cls=None)
+     |
+     |  __init__(self, func)
+     |      Initialize self.  See help(type(self)) for accurate signature.
+     |
+     |  __repr__(self)
+     |      Return repr(self).
+     |
+     |  register(self, cls, method=None)
+     |      generic_method.register(cls, func) -> func
+     |
+     |      Registers a new implementation for the given *cls* on a *generic_method*.
+     |
+     |  ----------------------------------------------------------------------
+     |  Readonly properties defined here:
+     |
+     |  __isabstractmethod__
+     |
+     |  ----------------------------------------------------------------------
+     |  Data descriptors defined here:
+     |
+     |  __dict__
+     |      dictionary for instance variables
+     |
+     |  __weakref__
+     |      list of weak references to the object
+
+FUNCTIONS
+    cache(user_function, /)
+        Simple lightweight unbounded cache.  Sometimes called "memoize".
+
+    cmp_to_key(mycmp)
+        Convert a cmp= fu

@@ -3,7 +3,20 @@
 Local-first personal AI workspace and research testbed. The governing specification is the XODUS master
 prompt v2. Nothing here is deployed or exposed beyond `127.0.0.1`.
 
-**State: Gate E (interface and extensibility), on top of Gates C and D.**
+**State: Gate F (reliability and resource evaluation), on top of Gates C, D and E.**
+
+- **Resource governor (Gate F):** the threshold levels are now enforced. Every 2 s the backend measures XODUS's own
+  memory (summed USS of every XODUS process), XODUS's own VRAM (the GPU memory of its processes, not other apps') and the
+  system's available memory. At **warn** it holds background ingestion (and unloads the embedding model), stops idle
+  plugin and MCP processes and refuses new ones; at **stop** it also refuses new tasks, ingestion requests, model switches
+  and searches that would load the embedder, with a clear message (HTTP 503 `resource_pressure`); chat stays available.
+  It steps down after 30 s below a level and writes each episode to the audit log. It cannot stop Windows itself from
+  running out of memory. Switch it off with `[thresholds] enforce = false`.
+- **API token (Gate F):** every `/api` request needs the per-install token in `data/api_token`. The UI receives it as
+  an HttpOnly, SameSite=Strict cookie from the page itself, so nothing changes in the browser; scripts send it in the
+  `X-XODUS-Token` header (see the helper below). Delete the file and restart to rotate it.
+- **Measurements (Gate F):** `scripts\measure.ps1` runs the ten resource scenarios of the brief (protocol:
+  `experiments/gate-f/PROTOCOL.md`); see "Gate F measurements" below.
 
 - **UI:** eleven views served as a static export by the backend (no Node process at runtime): Workspace (chat, ask
   your documents with checkable citations, run tasks with a live T+ timeline and inline approvals), History,
@@ -89,15 +102,18 @@ Needs the embedding model once: `ollama pull qwen3-embedding:0.6b` (639 MB). Doc
 
 ```powershell
 # A small helper (Windows PowerShell mangles inline JSON that contains spaces, so the body goes through a file).
+# Every /api request needs the per-install token the backend wrote to data\api_token on its first start.
+$token = Get-Content data\api_token
 function xodus($path, $body) {
   $f = New-TemporaryFile; ($body | ConvertTo-Json) | Set-Content -Encoding ascii $f
-  curl.exe -s -N -X POST "http://127.0.0.1:8765$path" -H "Content-Type: application/json" --data-binary "@$f"; Remove-Item $f
+  curl.exe -s -N -X POST "http://127.0.0.1:8765$path" -H "Content-Type: application/json" -H "X-XODUS-Token: $token" `
+    --data-binary "@$f"; Remove-Item $f
 }
 # 1. a collection, then queue a file or a whole folder (links are never followed)
 xodus /api/knowledge/collections @{ name = "notes" }
 xodus /api/knowledge/ingest @{ collection = "notes"; root = "sandbox"; path = "."; recursive = $true }
 # 2. watch the jobs (the worker starts by itself, stops after 60 s idle, resumes after a crash)
-curl.exe -s http://127.0.0.1:8765/api/knowledge/jobs
+curl.exe -s http://127.0.0.1:8765/api/knowledge/jobs -H "X-XODUS-Token: $token"
 # 3. search, or ask with citations (the answer streams)
 xodus /api/knowledge/search @{ query = "what is in the sandbox folder" }
 xodus /api/knowledge/ask @{ question = "what is in the sandbox folder" }
@@ -123,7 +139,7 @@ grants = ["kb.read"]
 | `GET/POST /api/conversations`, `GET/PATCH/DELETE .../{id}` | Saved conversations (search with `q`); deleting removes messages and derived memory |
 | `POST /api/chat`, `/api/knowledge/ask`, `/api/tasks` with `"conversation_id"` | Save both turns; chat also sends earlier turns as history (bounded by `chat.max_history_tokens`) |
 | `GET /api/models`, `POST /api/models/switch` `{"profile"}` | Profiles with install, load and digest state and the footprint measured at the last switch; switch (refused while busy) |
-| `GET /api/resources` | Every process with tier, USS, working set, private commit, GPU memory; lines; threshold levels (shown, not enforced: Gate F) |
+| `GET /api/resources` | Every process with tier, USS, working set, private commit, GPU memory; lines; threshold levels and the governor's state (enforced since Gate F) |
 | `POST /api/processes/{pid}/stop` | Stop an optional-tier process XODUS launched (core processes are refused) |
 | `POST /api/ingestion/pause`, `.../resume` | Pause background ingestion (the running file resumes from its checkpoint) |
 | `GET /api/audit?limit&before&event` | The audit log, newest first, paginated |
@@ -173,14 +189,33 @@ Browser screenshots and the axe-core accessibility results go to `experiments/re
 
 ## Smoke benchmark (master prompt section 6)
 
-Stop the backend and Ollama first; the script takes its own idle baseline and starts both itself.
+Stop the backend and Ollama first; the script takes its own idle baseline and starts both itself (on a separate data
+folder inside the result folder, so `data/` is never touched; it reads the API token it needs from there).
 
 ```powershell
 cd backend
 uv run python ..\scripts\smoke_benchmark.py
 ```
 
-Results go to `experiments/results/smoke-<timestamp>/` as `results.json` and `summary.md`.
+Results go to `experiments/results/smoke-<timestamp>/` as `results.json`, `raw_samples.json` and `summary.md`.
+
+## Gate F measurements
+
+All of these need Ollama and the backend **stopped**: each takes an idle baseline, then starts and stops both itself, on
+an isolated data folder. The protocol and its pass rules are in `experiments/gate-f/PROTOCOL.md`; the fixed corpus is
+`experiments/corpus/gate-f-50/` (written once by `scripts\make_corpus.py`, pinned by `MANIFEST.json`).
+
+```powershell
+scripts\measure.ps1                      # the ten scenarios of brief 3.6, twice (about 50 minutes)
+scripts\measure.ps1 -DryRun              # one short run to check the harness (never used for decisions)
+cd backend
+uv run python ..\scripts\failure_injection.py      # Ollama down, database locked, out of VRAM, oversized files, ...
+uv run python ..\scripts\pressure_test.py lowered  # governor warn/stop/recover with lowered thresholds
+uv run python ..\scripts\pressure_test.py ballast  # real low-memory run: holds RAM until about 1.35 GB is free (never below 1.2 GB) for 45 s
+```
+
+`failure_injection.py` starts a second Ollama server on 127.0.0.1:11435 for about a minute (to take VRAM away from
+XODUS) and stops it again. `pressure_test.py ballast` makes other applications page out for about a minute.
 
 ## Configuration
 
